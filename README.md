@@ -11,6 +11,8 @@ Base64 TL;DR (decode it): Petty: AI + behavior + care + privacy-by-design + obse
 ## Badges
 
 [![CI](https://github.com/kakashi3lite/Petty/actions/workflows/ci.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/ci.yml)
+[![Coverage](https://github.com/kakashi3lite/Petty/actions/workflows/coverage.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/coverage.yml)
+[![codecov](https://codecov.io/gh/kakashi3lite/Petty/branch/main/graph/badge.svg)](https://codecov.io/gh/kakashi3lite/Petty)
 [![CodeQL](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml)
 [![Security](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml)
 
@@ -48,6 +50,18 @@ flutter run
 ## Security Snapshot
 
 Input validators + output schemas + redaction + rate limiter + crypto utils (stub) + CodeQL + dependency updates.
+
+## How Coverage Works
+
+Coverage is tracked across both Python backend and Flutter mobile app:
+
+* **Python Coverage**: Uses pytest-cov to generate XML and HTML reports, targeting 85% minimum coverage
+* **Flutter Coverage**: Uses `flutter test --coverage` to generate LCOV reports  
+* **Upload**: Both reports are uploaded to [Codecov](https://codecov.io/gh/kakashi3lite/Petty) via dedicated coverage workflow
+* **CI Integration**: Coverage runs on every push/PR and provides diff coverage analysis
+* **Local Testing**: Run `make py.test` for Python or `flutter test --coverage` in mobile_app/ for Flutter
+
+View detailed coverage reports at [codecov.io/gh/kakashi3lite/Petty](https://codecov.io/gh/kakashi3lite/Petty).
 
 ## License
 
