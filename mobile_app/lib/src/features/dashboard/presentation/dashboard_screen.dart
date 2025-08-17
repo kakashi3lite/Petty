@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../services/api_service.dart';
 import '../../../widgets/glass_container.dart';
+import '../../../widgets/glass_panel.dart';
+import '../../../providers/adaptive_polling_provider.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -25,7 +27,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final asyncData = ref.watch(_realTimeProvider);
+    final asyncData = ref.watch(adaptiveRealTimeProvider(_collarId));
     final timelineAsync = ref.watch(_timelineProvider);
     return Scaffold(
       body: Stack(
@@ -66,11 +68,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                 ),
                               ),
                             const SizedBox(height: 16),
-                            GlassContainer(child: _Metric(label: 'Heart Rate', value: '$hr BPM', icon: Icons.favorite)),
-                            const SizedBox(height: 12),
-                            GlassContainer(child: _Metric(label: 'Activity', value: act, icon: Icons.directions_run)),
-                            const SizedBox(height: 12),
-                            GlassContainer(child: _Metric(label: 'Location', value: loc, icon: Icons.location_on_outlined)),
+                            // Main metrics panel using GlassPanel
+                            GlassPanel(
+                              child: Column(
+                                children: [
+                                  _Metric(label: 'Heart Rate', value: '$hr BPM', icon: Icons.favorite),
+                                  const SizedBox(height: 12),
+                                  _Metric(label: 'Activity', value: act, icon: Icons.directions_run),
+                                  const SizedBox(height: 12),
+                                  _Metric(label: 'Location', value: loc, icon: Icons.location_on_outlined),
+                                ],
+                              ),
+                            ),
                             const SizedBox(height: 16),
                             Align(
                               alignment: Alignment.centerLeft,
@@ -80,37 +89,45 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             const SizedBox(height: 8),
                             Expanded(
                               child: timelineAsync.when(
-                                data: (timeline) => ListView.builder(
-                                  itemCount: timeline.length,
-                                  itemBuilder: (ctx, i) {
-                                    final ev = timeline[i] as Map<String, dynamic>;
-                                    final ts = ev['timestamp'] ?? '';
-                                    final label = ev['behavior'] ?? 'Event';
-                                    final id = ev['event_id'] ?? 'id';
-                                    final acked = _ack.contains(id);
-                                    return Padding(
-                                      padding: const EdgeInsets.only(bottom: 10),
-                                      child: GlassContainer(
-                                        child: Row(
-                                          children: [
-                                            Expanded(child: Text('$ts — $label', style: const TextStyle(color: Colors.white))),
-                                            IconButton(
-                                              icon: Icon(Icons.thumb_up, color: acked ? Colors.greenAccent : Colors.white70),
-                                              onPressed: () async {
-                                                try { await _service.submitFeedback(id, 'correct'); setState(()=>_ack.add(id)); } catch (_) {}
-                                              },
-                                            ),
-                                            IconButton(
-                                              icon: Icon(Icons.thumb_down, color: acked ? Colors.redAccent : Colors.white70),
-                                              onPressed: () async {
-                                                try { await _service.submitFeedback(id, 'incorrect'); setState(()=>_ack.add(id)); } catch (_) {}
-                                              },
-                                            ),
-                                          ],
+                                data: (timeline) => GlassPanel(
+                                  child: ListView.builder(
+                                    itemCount: timeline.length,
+                                    itemBuilder: (ctx, i) {
+                                      final ev = timeline[i] as Map<String, dynamic>;
+                                      final ts = ev['timestamp'] ?? '';
+                                      final label = ev['behavior'] ?? 'Event';
+                                      final id = ev['event_id'] ?? 'id';
+                                      final acked = _ack.contains(id);
+                                      return Padding(
+                                        padding: const EdgeInsets.only(bottom: 10),
+                                        child: Container(
+                                          padding: const EdgeInsets.all(12),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white.withOpacity(0.08),
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(color: Colors.white.withOpacity(0.1)),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Expanded(child: Text('$ts — $label', style: const TextStyle(color: Colors.white))),
+                                              IconButton(
+                                                icon: Icon(Icons.thumb_up, color: acked ? Colors.greenAccent : Colors.white70),
+                                                onPressed: () async {
+                                                  try { await _service.submitFeedback(id, 'correct'); setState(()=>_ack.add(id)); } catch (_) {}
+                                                },
+                                              ),
+                                              IconButton(
+                                                icon: Icon(Icons.thumb_down, color: acked ? Colors.redAccent : Colors.white70),
+                                                onPressed: () async {
+                                                  try { await _service.submitFeedback(id, 'incorrect'); setState(()=>_ack.add(id)); } catch (_) {}
+                                                },
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                      ),
-                                    );
-                                  },
+                                      );
+                                    },
+                                  ),
                                 ),
                                 loading: () => const Center(child: CircularProgressIndicator()),
                                 error: (e, _) => Text('timeline error: $e', style: const TextStyle(color: Colors.white)),
@@ -148,20 +165,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     }
     return '--';
   }
-
-  static final _realTimeProvider = StreamProvider.autoDispose<Map<String, dynamic>>((ref) async* {
-    final service = APIService(baseUrl: _apiBaseUrl);
-    const pollInterval = Duration(seconds: 15); // still 15s, natural debounce >=12s
-    while (true) {
-      try {
-        final data = await service.getRealTimeData(_collarId);
-        yield data;
-      } catch (e) {
-        yield {"error": e.toString()};
-      }
-      await Future.delayed(pollInterval);
-    }
-  });
 
   static final _timelineProvider = FutureProvider<List<dynamic>>((ref) async {
     final service = APIService(baseUrl: _apiBaseUrl);
