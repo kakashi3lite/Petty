@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json
 import os
-from typing import Any, Dict, Callable, Type
+from typing import Any, Dict
 import boto3
 from botocore.exceptions import ClientError
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
