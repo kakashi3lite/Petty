@@ -13,10 +13,20 @@ This document outlines how Petty implements security controls aligned with the O
 - **Input Sanitization**: Text inputs are HTML-escaped and stripped of potential injection patterns
 - **Schema Enforcement**: Only predefined behavior types and data formats are accepted
 - **Rate Limiting**: AI inference endpoints are rate-limited to prevent abuse
+- **⭐ NEW: AI Guardrails**: Comprehensive prompt injection keyword detection with 30+ injection patterns
+- **⭐ NEW: Input Size Limits**: Maximum 10KB input size with field count limits (20 fields max)
+- **⭐ NEW: Nested Data Sanitization**: Recursive sanitization of nested objects with depth limits
 
 **Code References**:
 - `src/common/security/input_validators.py`
 - `src/behavioral_interpreter/interpreter.py`
+- **⭐ NEW**: `src/common/security/guardrails.py`
+
+**Keywords Blocked**:
+- Command injection: "ignore previous instructions", "admin mode", "forget everything"
+- SQL injection: "DROP TABLE", "UNION SELECT", "DELETE FROM"
+- XSS: `<script>`, "javascript:", "onload="
+- System commands: "rm -rf", "sudo", "exec("
 
 ### LLM02: Insecure Output Handling
 
@@ -27,10 +37,14 @@ This document outlines how Petty implements security controls aligned with the O
 - **Schema Validation**: Output conforms to predefined Pydantic schemas
 - **Content Filtering**: Outputs are checked against allow-lists of valid behaviors
 - **Length Limits**: All text outputs are length-limited to prevent overflow attacks
+- **⭐ NEW: Comprehensive Output Validation**: Pydantic-based AIPlanOutput schema with field sanitization
+- **⭐ NEW: Health Alert Filtering**: Automatic filtering of suspicious content in health alerts
+- **⭐ NEW: Size Limits**: Maximum 50KB output size enforcement
 
 **Code References**:
 - `src/common/security/output_schemas.py`
 - Behavioral interpreter output validation
+- **⭐ NEW**: `src/common/security/guardrails.py` (AIPlanOutput model)
 
 ### LLM03: Training Data Poisoning
 
@@ -51,10 +65,14 @@ This document outlines how Petty implements security controls aligned with the O
 - **Circuit Breakers**: Automatic failure protection with configurable thresholds
 - **Input Size Limits**: Maximum data points processed per request
 - **Resource Monitoring**: AWS Lambda concurrency controls and timeouts
+- **⭐ NEW: AI Endpoint Rate Limiting**: Configurable per-minute/per-hour limits with IP-based keys
+- **⭐ NEW: Multi-layer Rate Limiting**: Function-level and IP-level rate limiting
+- **⭐ NEW: Input/Output Size Controls**: Strict limits on data size to prevent resource exhaustion
 
 **Code References**:
 - `src/common/security/rate_limiter.py`
 - Lambda timeout configurations in SAM template
+- **⭐ NEW**: `src/common/security/guardrails.py` (ai_rate_limit decorator)
 
 ### LLM05: Supply Chain Vulnerabilities
 
