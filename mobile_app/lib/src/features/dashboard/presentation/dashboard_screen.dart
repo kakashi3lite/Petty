@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../services/api_service.dart';
 import '../../../widgets/glass_container.dart';
+import '../../../env/env.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -11,9 +12,8 @@ class DashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
-  static const String _apiBaseUrl = 'https://api.example.com';
   static const String _collarId = 'SN-123';
-  final _service = APIService(baseUrl: _apiBaseUrl);
+  final _service = APIService();
   final Set<String> _ack = {};
 
   @override
@@ -132,7 +132,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   static final _realTimeProvider = StreamProvider<Map<String, dynamic>>((ref) async* {
-    final service = APIService(baseUrl: _apiBaseUrl);
+    final service = APIService();
     while (true) {
       try { yield await service.getRealTimeData(_collarId); } catch (e) { yield {"error": e.toString()}; }
       await Future.delayed(const Duration(seconds: 15));
@@ -140,7 +140,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   });
 
   static final _timelineProvider = FutureProvider<List<dynamic>>((ref) async {
-    final service = APIService(baseUrl: _apiBaseUrl);
+    final service = APIService();
     return service.getPetTimeline(_collarId);
   });
 }
