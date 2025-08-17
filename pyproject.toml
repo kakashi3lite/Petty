@@ -185,6 +185,13 @@ addopts = [
     "--cov-report=xml",
     "--cov-fail-under=85",
 ]
+# Explicitly enable only required plugins when plugin autoload is disabled
+plugins = [
+    "pytest_cov",
+    "pytest_asyncio", 
+    "pytest_mock",
+    "hypothesis.extra.pytestplugin",
+]
 testpaths = ["tests"]
 filterwarnings = [
     "error",
@@ -216,8 +223,8 @@ exclude_lines = [
     "raise NotImplementedError",
     "if 0:",
     "if __name__ == .__main__.:",
-    "class .*\bProtocol\):",
-    "@(abc\.)?abstractmethod",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
 ]
 
 [tool.bandit]
