@@ -14,7 +14,7 @@ Base64 TL;DR (decode it): Petty: AI + behavior + care + privacy-by-design + obse
 [![CodeQL](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml)
 [![Security](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml)
 
-> Extended docs: [Consumer Overview](docs/CONSUMER_OVERVIEW.md) • [Mobile UI & Adaptive Polling](docs/MOBILE_UI_ADAPTIVE_POLLING.md)
+> Extended docs: [Consumer Overview](docs/CONSUMER_OVERVIEW.md) • [Mobile UI & Adaptive Polling](docs/MOBILE_UI_ADAPTIVE_POLLING.md) • [Operations Guide](docs/OPERATIONS.md)
 
 ## Core Features
 
@@ -44,6 +44,23 @@ flutter run
 ## Dev Hygiene
 
 `make py.lint` • `make py.test` • `make flutter.analyze` • pre-commit hooks for consistent style.
+
+## CI & Coverage
+
+* **CI Pipeline**: Comprehensive testing via [GitHub Actions](https://github.com/kakashi3lite/Petty/actions/workflows/ci.yml)
+* **Test Coverage**: Reports via [Codecov](https://codecov.io/github/kakashi3lite/Petty) 
+* **Security Scans**: Bandit, Safety, Semgrep, CodeQL in every PR
+* **Property Tests**: Hypothesis-driven invariant validation
+
+### Quick Golden Tests
+
+```bash
+# Run property-based tests that validate system behavior invariants
+pytest tests/ -m "property" --hypothesis-profile=ci -v
+
+# Core security property tests
+pytest tests/security/ -v
+```
 
 ## Security Snapshot
 
