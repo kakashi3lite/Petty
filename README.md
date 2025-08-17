@@ -13,67 +13,50 @@ Base64 TL;DR (decode it): Petty: AI + behavior + care + privacy-by-design + obse
 [![CI](https://github.com/kakashi3lite/Petty/actions/workflows/ci.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml)
 [![Security](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kakashi3lite/Petty/main/docs/metrics/coverage.json)](https://github.com/kakashi3lite/Petty/actions/workflows/coverage.yml)
 
-> Extended docs: [Consumer Overview](docs/CONSUMER_OVERVIEW.md) • [Mobile UI & Adaptive Polling](docs/MOBILE_UI_ADAPTIVE_POLLING.md)
+## 📖 Deep Dive Documentation
 
-## Core Features
+**For Pet Owners & Users:**  
+🏠 [Consumer Overview](docs/CONSUMER_OVERVIEW.md) — What Petty does, privacy promises, FAQ
 
-* Behavior timeline + rules engine (guardrails on)
-* Nutrition + personalization scaffolds
-* Secure feedback storage (S3 + SSE)
-* Redaction + rate limiting + validator layer
-* Flutter UI (Dashboard / Profile / Tele‑Vet)
+**For Developers & Contributors:**  
+📱 [Mobile UI & Adaptive Polling](docs/MOBILE_UI_ADAPTIVE_POLLING.md) — Flutter implementation, glass UI, performance
 
-## 30s Backend Setup
+## Quick Start
 
+**Backend (30s):**
 ```bash
-python -m venv .venv && \
-  source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
+python -m venv .venv && source .venv/bin/activate
 pip install -U pip && pip install -e .
 python tests/validate_system.py
 ```
 
-## 30s Mobile Peek
-
+**Mobile (30s):**
 ```bash
-cd mobile_app
-flutter pub get
-flutter run
+cd mobile_app && flutter pub get && flutter run
 ```
 
-## Dev Hygiene
-
-`make py.lint` • `make py.test` • `make flutter.analyze` • pre-commit hooks for consistent style.
-
-## Security Snapshot
-
-Input validators + output schemas + redaction + rate limiter + crypto utils (stub) + CodeQL + dependency updates.
-
-## License
-
-MIT — see `LICENSE`.
-
-## Contribute
-
-PRs > complaints. Add tests. Keep it lean. No secret leaks.
-
-## Semantic Versioning
-
-`MAJOR.MINOR.PATCH` — break APIs? bump MAJOR.
-
-## One More Base64 (easter egg)
-
-```text
-U2l0LiBTdGF5LiBEZXBsb3kuIEFkdmljZSB5b3VyIHBldCdzIGh1bWFuLg==
-```
-
-Decode with:
-
+**Dev Tools:**
 ```bash
-echo 'U2l0LiBTdGF5LiBEZXBsb3kuIEFkdmljZSB5b3VyIHBldCdzIGh1bWFuLg==' | base64 -d
+make help        # See all commands
+make py.test     # Run Python tests  
+make flutter.analyze  # Flutter linting
 ```
+
+## Core Features
+
+* Behavior timeline + rules engine
+* Secure telemetry storage (S3 + SSE)
+* Privacy-by-design + data export tools
+* Adaptive polling + glass UI
+* Rate limiting + input validation
+
+## License & Contribute
+
+MIT — see `LICENSE`. PRs > complaints. Add tests. Keep it lean.
 
 ---
-Strategic docs moved out of the README to stay lean. See the linked extended docs above.
+*Strategic details moved to deep dive docs above to keep README minimal.*
 
 
