@@ -1,0 +1,118 @@
+name: Dev Tasks Automation
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+  schedule:
+    - cron: '0 3 * * *'
+  push:
+    paths:
+      - '**/*.py'
+      - '**/*.dart'
+      - '**/*.md'
+      - '.github/workflows/dev-tasks.yml'
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+  security-events: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Auto Label Issues and PRs
+        uses: actions-ecosystem/action-add-labels@v1
+        if: github.event_name != 'schedule'
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          labels: >-
+            needs-triage
+
+      - name: Apply Language Labels
+        if: github.event_name != 'schedule'
+        run: |
+          FILES=$(jq -r '.pull_request.changed_files? // empty' "$GITHUB_EVENT_PATH" || true)
+          # Fallback: scan repo
+          py_count=$(git ls-files '*.py' | wc -l)
+          dart_count=$(git ls-files '*.dart' | wc -l)
+          labels=()
+          if [ "$py_count" -gt 0 ]; then labels+=(python); fi
+          if [ "$dart_count" -gt 0 ]; then labels+=(dart); fi
+          for l in "${labels[@]}"; do
+            gh issue edit ${{ github.event.number || 0 }} --add-label "$l" || true
+            gh pr edit ${{ github.event.number || 0 }} --add-label "$l" || true
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+
+      - name: Extract TODO/FIXME and open tracking issue
+        if: github.event_name == 'push'
+        run: |
+          set -e
+          MATCHES=$(grep -RIn "TODO\|FIXME" || true)
+          if [ -z "$MATCHES" ]; then
+            echo "No TODO/FIXME found"
+            exit 0
+          fi
+            title="Chore: Sync code TODO/FIXME items ($(date -u +%Y-%m-%d))"
+          body=$(printf "Found TODO/FIXME comments:\n\n%s" "$MATCHES")
+          # Avoid duplicates
+            existing=$(gh issue list --search "$title" --state open --json title -q '.[].title')
+          if echo "$existing" | grep -q "$title"; then
+            echo "Tracking issue already exists"
+          else
+            gh issue create --title "$title" --body "$body" --label chore,tech-debt || true
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+
+  stale:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - name: Mark stale issues and PRs
+        uses: actions/stale@v9
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          days-before-stale: 30
+          days-before-close: 14
+          stale-issue-label: 'stale'
+          stale-pr-label: 'stale'
+          exempt-issue-labels: 'pinned,security'
+          exempt-pr-labels: 'pinned,security'
+          operations-per-run: 200
+          remove-stale-when-updated: true
+          stale-issue-message: >-
+            This issue has been automatically marked as stale due to 30 days of inactivity. If this is still relevant, please comment or add a label to prevent auto-closure.
+          close-issue-message: >-
+            Closing due to prolonged inactivity. Feel free to reopen if work resumes.
+          stale-pr-message: >-
+            This PR has been automatically marked as stale due to 30 days of inactivity. Please push updates or comment to keep it open.
+          close-pr-message: >-
+            Closing inactive PR. Reopen when you're ready to continue.
+
+  security-digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate dependency security digest
+        run: |
+          pipx install pip-audit || pip install pip-audit
+          echo "Python dependencies:" > SECURITY_DIGEST.md
+          pip-audit -r pyproject.toml >> SECURITY_DIGEST.md || true
+          echo "\nContainer / Infra notes:" >> SECURITY_DIGEST.md
+          echo "(Add container scan results here if applicable)" >> SECURITY_DIGEST.md
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-digest
+          path: SECURITY_DIGEST.md
