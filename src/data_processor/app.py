@@ -16,16 +16,10 @@ from botocore.exceptions import ClientError, BotoCoreError
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-try:
-    from aws_lambda_powertools import Logger, Tracer, Metrics
-    from aws_lambda_powertools.logging import correlation_paths
-    from aws_lambda_powertools.metrics import MetricUnit
-    from aws_lambda_powertools.utilities.typing import LambdaContext
-    AWS_POWERTOOLS_AVAILABLE = True
-except ImportError:
-    AWS_POWERTOOLS_AVAILABLE = False
-    class LambdaContext:
-        pass
+# >>> POWDTOOLS_REFACTOR_START >>>
+from common.observability.powertools import logger, tracer, metrics, MetricUnit  # centralized
+from aws_lambda_powertools.utilities.typing import LambdaContext  # type: ignore
+# <<< POWDTOOLS_REFACTOR_END <<<
 
 try:
     from common.security.input_validators import validate_collar_data, InputValidator
@@ -36,15 +30,6 @@ try:
 except ImportError:
     SECURITY_MODULES_AVAILABLE = False
     logging.warning("Security modules not available - using fallbacks")
-
-# Configure logger
-if AWS_POWERTOOLS_AVAILABLE:
-    logger = Logger(service="data-processor")
-    tracer = Tracer(service="data-processor")
-    metrics = Metrics(service="data-processor", namespace="Petty")
-else:
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
 
 # Environment configuration
 TIMESTREAM_DATABASE = os.getenv("TIMESTREAM_DATABASE", "PettyDB")
@@ -97,9 +82,8 @@ class DataProcessor:
             
             # Record metrics
             processing_time = time.time() - start_time
-            if AWS_POWERTOOLS_AVAILABLE:
-                metrics.add_metric(name="ProcessingTime", unit=MetricUnit.Seconds, value=processing_time)
-                metrics.add_metric(name="SuccessfulIngestion", unit=MetricUnit.Count, value=1)
+            metrics.add_metric(name="ProcessingTime", unit=MetricUnit.Seconds, value=processing_time)
+            metrics.add_metric(name="SuccessfulIngestion", unit=MetricUnit.Count, value=1)
             
             self.logger.info(
                 "Telemetry data processed successfully",
@@ -120,8 +104,7 @@ class DataProcessor:
                 
         except Exception as e:
             # Record failure metrics
-            if AWS_POWERTOOLS_AVAILABLE:
-                metrics.add_metric(name="FailedIngestion", unit=MetricUnit.Count, value=1)
+            metrics.add_metric(name="FailedIngestion", unit=MetricUnit.Count, value=1)
             
             self.logger.error(
                 "Telemetry processing failed",
@@ -252,9 +235,9 @@ class DataProcessor:
 # Global processor instance
 processor = DataProcessor()
 
-@tracer.capture_lambda_handler if AWS_POWERTOOLS_AVAILABLE else lambda x: x
-@logger.inject_lambda_context(log_event=True) if AWS_POWERTOOLS_AVAILABLE else lambda x: x
-@rate_limit_decorator("ingest", tokens=1, key_func=lambda event, context: event.get("body", {}).get("collar_id", "unknown")) if SECURITY_MODULES_AVAILABLE else lambda x: x
+@tracer.capture_lambda_handler  # tracing
+@logger.inject_lambda_context(log_event=True)  # structured logs with event
+@rate_limit_decorator("ingest", tokens=1, key_func=lambda event, context: (event.get("body", {}) or {}).get("collar_id", "unknown")) if SECURITY_MODULES_AVAILABLE else (lambda f: f)
 def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, Any]:
     """
     AWS Lambda handler for collar data ingestion
@@ -267,7 +250,8 @@ def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, A
     - AWS Timestream integration with retry logic
     """
     request_id = getattr(context, 'aws_request_id', 'unknown')
-    
+    metrics.add_metric(name="Requests", unit=MetricUnit.Count, value=1)
+
     try:
         # Parse request body
         body = event.get("body")
@@ -298,6 +282,7 @@ def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, A
             else:
                 return {"statusCode": 400, "body": json.dumps({"error": "Invalid format"})}
         
+        logger.append_keys(collar_id=body.get("collar_id"))
         logger.info("Processing collar data ingestion", request_id=request_id)
         
         # Process the telemetry data
@@ -314,7 +299,7 @@ def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, A
         
         return result
         
-    except RateLimitExceeded as e:
+    except RateLimitExceeded as e:  # type: ignore
         logger.warning("Rate limit exceeded", error=str(e), request_id=request_id)
         return {
             "statusCode": 429,
@@ -322,8 +307,8 @@ def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, A
             "body": json.dumps({"error": "Rate limit exceeded", "request_id": request_id})
         }
     
-    except Exception as e:
-        logger.error("Unhandled error in lambda handler", error=str(e), request_id=request_id)
+    except Exception as e:  # pylint: disable=broad-except
+        logger.exception("Unhandled error in lambda handler", error=str(e), request_id=request_id)
         return {
             "statusCode": 500,
             "headers": {"Content-Type": "application/json"},

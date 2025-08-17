@@ -1,9 +1,11 @@
 import json, os, logging, random, datetime
 from typing import List, Dict, Any
 from behavioral_interpreter.interpreter import BehavioralInterpreter
+# >>> POWDTOOLS_REFACTOR_START >>>
+from common.observability.powertools import logger, tracer, metrics, MetricUnit
+# <<< POWDTOOLS_REFACTOR_END <<<
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+# remove basic logger config, powertools handles level via env
 
 def _stub_last_24h(collar_id: str) -> List[Dict[str, Any]]:
     # Simulated 24h of points every 10 minutes
@@ -22,14 +24,18 @@ def _stub_last_24h(collar_id: str) -> List[Dict[str, Any]]:
         })
     return data
 
+@tracer.capture_lambda_handler
+@logger.inject_lambda_context(log_event=True)
 def lambda_handler(event, context):
+    metrics.add_metric(name="Requests", unit=MetricUnit.Count, value=1)
     try:
         qs = event.get("queryStringParameters") or {}
         collar_id = qs.get("collar_id") or "SN-123"
+        logger.append_keys(collar_id=collar_id, path="timeline")
         # TODO: replace stub with Timestream query
         series = _stub_last_24h(collar_id)
         timeline = BehavioralInterpreter().analyze_timeline(series)
         return {"statusCode": 200, "body": json.dumps({"collar_id": collar_id, "timeline": timeline})}
-    except Exception as e:
-        logger.exception("timeline error")
+    except Exception as e:  # pylint: disable=broad-except
+        logger.exception("timeline error", error=str(e))
         return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
