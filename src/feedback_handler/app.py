@@ -41,7 +41,7 @@ def lambda_handler(event, context):  # type: ignore
             doc["segment"] = segment
 
         key = _build_key(collar_id, event_id)
-        put_json(FEEDBACK_BUCKET, key, doc)
+        put_json(FEEDBACK_BUCKET, key, payload=doc)
         logger.info("stored feedback", extra={"event_id": event_id, "bucket": FEEDBACK_BUCKET, "key": key})
         return {"statusCode": 200, "body": json.dumps({"ok": True, "key": key})}
     except Exception as e:  # pragma: no cover
