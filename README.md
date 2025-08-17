@@ -13,6 +13,7 @@ Base64 TL;DR (decode it): Petty: AI + behavior + care + privacy-by-design + obse
 [![CI](https://github.com/kakashi3lite/Petty/actions/workflows/ci.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml)
 [![Security](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml)
+[![codecov](https://codecov.io/gh/kakashi3lite/Petty/graph/badge.svg?token=YOUR_CODECOV_TOKEN)](https://codecov.io/gh/kakashi3lite/Petty)
 
 > Extended docs: [Consumer Overview](docs/CONSUMER_OVERVIEW.md) • [Mobile UI & Adaptive Polling](docs/MOBILE_UI_ADAPTIVE_POLLING.md)
 
