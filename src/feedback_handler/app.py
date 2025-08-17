@@ -1,7 +1,8 @@
-import json, os, logging, time
-from typing import Dict, Any
+import json
+
 # >>> POWDTOOLS_REFACTOR_START >>>
-from common.observability.powertools import logger, tracer, metrics, MetricUnit
+from common.observability.powertools import MetricUnit, logger, metrics, tracer
+
 # <<< POWDTOOLS_REFACTOR_END <<<
 
 @tracer.capture_lambda_handler

@@ -1,8 +1,10 @@
-from typing import Dict, Any
+from typing import Any
+
 from . import knowledge_base  # noqa: F401
 
+
 class AICoreService:
-    def get_holistic_pet_plan(self, profile: Dict[str, Any]) -> Dict[str, Any]:
+    def get_holistic_pet_plan(self, profile: dict[str, Any]) -> dict[str, Any]:
         # Minimal stub plan for wiring (replace with full logic)
         name = profile.get("name", "Buddy")
         return {

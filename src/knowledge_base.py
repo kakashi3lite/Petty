@@ -1,6 +1,7 @@
-from typing import Dict, Any
+from typing import Any
 
-def evaluate_rules(profile: Dict[str, Any]) -> Dict[str, Any]:
+
+def evaluate_rules(profile: dict[str, Any]) -> dict[str, Any]:
     actions = {}
     species = profile.get("species")
     life_stage = profile.get("life_stage")

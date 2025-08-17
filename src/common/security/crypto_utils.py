@@ -5,17 +5,17 @@ Cryptographic utilities for data protection
 import hashlib
 import hmac
 import secrets
-from typing import Optional, Union
+
 
 def generate_token(length: int = 32) -> str:
     """Generate a cryptographically secure random token"""
     return secrets.token_hex(length)
 
-def hash_data(data: Union[str, bytes], algorithm: str = 'sha256') -> str:
+def hash_data(data: str | bytes, algorithm: str = 'sha256') -> str:
     """Hash data using specified algorithm"""
     if isinstance(data, str):
         data = data.encode('utf-8')
-    
+
     if algorithm == 'sha256':
         return hashlib.sha256(data).hexdigest()
     elif algorithm == 'sha512':
@@ -29,14 +29,14 @@ def secure_compare(a: str, b: str) -> bool:
 
 class DataEncryption:
     """Simple data encryption utility (mock implementation for testing)"""
-    
-    def __init__(self, key: Optional[str] = None):
+
+    def __init__(self, key: str | None = None):
         self.key = key or generate_token(32)
-    
+
     def encrypt(self, plaintext: str) -> str:
         """Mock encryption - in production, use proper encryption like Fernet"""
         return f"ENCRYPTED[{hash_data(plaintext + self.key)[:16]}]"
-    
+
     def decrypt(self, ciphertext: str) -> str:
         """Mock decryption - in production, use proper decryption"""
         if ciphertext.startswith("ENCRYPTED[") and ciphertext.endswith("]"):
@@ -46,12 +46,12 @@ class DataEncryption:
 # Alias for backward compatibility
 SecureCrypto = DataEncryption
 
-def encrypt_sensitive_data(data: str, key: Optional[str] = None) -> str:
+def encrypt_sensitive_data(data: str, key: str | None = None) -> str:
     """Encrypt sensitive data using default encryption"""
     encryptor = DataEncryption(key)
     return encryptor.encrypt(data)
 
-def decrypt_sensitive_data(ciphertext: str, key: Optional[str] = None) -> str:
+def decrypt_sensitive_data(ciphertext: str, key: str | None = None) -> str:
     """Decrypt sensitive data using default encryption"""
     decryptor = DataEncryption(key)
     return decryptor.decrypt(ciphertext)
