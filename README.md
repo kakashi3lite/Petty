@@ -14,7 +14,7 @@ AI-driven behavior insights • Tail-ored nutrition & care planning • Privacy-
 | Personalization | Nutrition calculator, recommendation model scaffolding |
 | Privacy & Security | PII redaction, coordinate precision limiting, rate limiting, circuit breaker fallbacks |
 | Observability | Structured logging (JSON-friendly), future hooks for metrics/tracing |
-| Mobile Experience | Flutter glassmorphism UI screens (Dashboard, Pet Profile, Tele‑Vet) |
+| Mobile Experience | Flutter (Material 3 + Glassmorphism) UI screens (Dashboard, Pet Profile, Tele‑Vet) |
 | DevSecOps | CI (build/test), signing workflow, CodeQL, dependency updates (Dependabot), security digest generation |
 
 Badges (populate once workflows complete – coming soon to a doggo near you):
@@ -54,7 +54,7 @@ Badges (populate once workflows complete – coming soon to a doggo near you):
 	     +--------------------------------
 ```
 
-Key security & resilience layers wrap ingress (validators), processing (rate limiter, circuit breaker), and egress (output schemas, redaction).
+Key security & resilience layers wrap ingress (validators), processing (rate limiter, circuit breaker), and egress (output schemas, redaction). Mobile layer employs early Riverpod selective rebuild pattern; adaptive polling (ETag/backoff) planned.
 
 ---
 
@@ -114,6 +114,21 @@ flutter run
 3. Merges to `main` trigger security digest artifact & (future) deploy workflow.
 
 Pre-commit hooks configured in `.pre-commit-config.yaml` (install with `pre-commit install`).
+
+### Makefile Highlights
+
+| Target | Purpose |
+|--------|---------|
+| `bootstrap` | Create venv, install deps, setup hooks & Flutter deps |
+| `py.lint` | Ruff + Black check + mypy |
+| `py.test` | Python tests only |
+| `flutter.analyze` | Flutter analyzer |
+| `flutter.test` | Flutter widget/unit tests |
+| `security` | Bandit, safety, secrets scan, pip-audit |
+| `test` | Full Python + Flutter test suite |
+| `build` | Python package, SAM, debug APK |
+| `deploy-*` | Environment deployments (dev/staging/prod w/ guard) |
+| `simulate` | Local SAM API + telemetry simulator |
 
 ---
 \n## Testing Strategy 🧫
