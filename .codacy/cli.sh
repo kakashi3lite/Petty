@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
-
-set -e +o pipefail
+set -euo pipefail
 
 # Set up paths first
 bin_name="codacy-cli-v2"

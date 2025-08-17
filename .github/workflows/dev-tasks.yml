@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.2.1
 
       - name: Install GitHub CLI
         run: |
@@ -35,13 +35,16 @@ jobs:
           fi
         shell: bash
 
-      - name: Auto Label Issues and PRs
-        uses: actions-ecosystem/action-add-labels@v1
+      - name: Add needs-triage label
         if: github.event_name != 'schedule'
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          labels: >-
-            needs-triage
+        run: |
+          target_number=${{ github.event.issue.number || github.event.pull_request.number || 0 }}
+          if [ "$target_number" -gt 0 ]; then
+            gh issue edit "$target_number" --add-label needs-triage || gh pr edit "$target_number" --add-label needs-triage || true
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
 
       - name: Apply Language Labels
         if: github.event_name != 'schedule'
@@ -88,7 +91,7 @@ jobs:
     if: github.event_name == 'schedule'
     steps:
       - name: Mark stale issues and PRs
-        uses: actions/stale@v9
+        uses: actions/stale@8b5885e3c47d3aae6ef8626158b3cfe61b1e66f7 # v9.0.0
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           days-before-stale: 30
@@ -111,7 +114,8 @@ jobs:
   security-digest:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.2.1
       - name: Generate dependency security digest
         run: |
           pipx install pip-audit || pip install pip-audit
@@ -120,7 +124,7 @@ jobs:
           echo "\nContainer / Infra notes:" >> SECURITY_DIGEST.md
           echo "(Add container scan results here if applicable)" >> SECURITY_DIGEST.md
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.3.1
         with:
           name: security-digest
           path: SECURITY_DIGEST.md
