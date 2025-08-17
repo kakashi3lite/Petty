@@ -14,7 +14,7 @@ AI-driven behavior insights • Tail-ored nutrition & care planning • Privacy-
 | Personalization | Nutrition calculator, recommendation model scaffolding |
 | Privacy & Security | PII redaction, coordinate precision limiting, rate limiting, circuit breaker fallbacks |
 | Observability | Structured logging (JSON-friendly), future hooks for metrics/tracing |
-| Mobile Experience | Flutter glassmorphism UI with Material 3, adaptive polling (15s base), auto-dispose lifecycle, real-time dashboard with feedback system |
+| Mobile Experience | Flutter glassmorphism UI with Material 3, adaptive polling (15s base), auto-dispose lifecycle, real-time dashboard with S3 feedback system |
 | DevSecOps | CI (build/test), signing workflow, CodeQL, dependency updates (Dependabot), security digest generation |
 
 **Workflow Status:**
@@ -84,8 +84,27 @@ Padding: 16px (configurable)
 
 ### Material 3 Integration
 
-**Color Scheme:**
-- **Primary Gradient**: Ocean blue to cyan (`Color(0xFF2193b0)` → `Color(0xFF6dd5ed)`)
+**Theme Configuration:**
+```dart
+final theme = ThemeData(
+  brightness: Brightness.dark,
+  useMaterial3: true,
+  colorScheme: const ColorScheme.dark(primary: Color(0xFF6dd5ed)),
+  textTheme: const TextTheme(
+    headlineMedium: TextStyle(fontWeight: FontWeight.bold),
+  ),
+);
+```
+
+**Navigation Structure:**
+- **Go Router**: Declarative routing with type-safe navigation
+- **Routes**: `/` (Dashboard), `/profile` (Pet Profile), `/tele-vet` (Tele-Vet)
+- **Material 3**: Full Material Design 3 support with dark theme base
+
+**Screen-Specific Color Schemes:**
+- **Dashboard**: Ocean blue to cyan (`Color(0xFF2193b0)` → `Color(0xFF6dd5ed)`) for real-time monitoring
+- **Pet Profile**: Nature green gradient (`Color(0xFF56ab2f)` → `Color(0xFFA8E063)`) for care planning
+- **Tele-Vet**: Professional purple gradient (`Color(0xFF614385)` → `Color(0xFF516395)`) for medical consultations
 - **Text Hierarchy**: White primary, white70 secondary for optimal contrast on gradient backgrounds
 - **Interactive Elements**: Green accent for positive feedback, red accent for negative feedback
 
@@ -262,6 +281,28 @@ testWidgets('stops polling after dispose', (tester) async {
 - **Network Usage**: Measure data consumption patterns
 - **Error Rates**: Track failed requests and recovery times
 
+### User Feedback Integration
+
+**S3 Feedback Persistence:**
+```dart
+// Mobile feedback submission
+IconButton(
+  icon: Icon(Icons.thumb_up, color: acked ? Colors.greenAccent : Colors.white70),
+  onPressed: () async {
+    try { 
+      await _service.submitFeedback(id, 'correct'); 
+      setState(()=>_ack.add(id)); 
+    } catch (_) {}
+  },
+)
+```
+
+**Backend S3 Integration:**
+- **Secure Storage**: Server-side encrypted feedback persistence to S3
+- **Structured Keys**: `feedback/{collar_id}/{event_id}.json` for easy retrieval
+- **Retry Logic**: Exponential backoff with tenacity for reliability
+- **Size Limits**: 64KB limit for segment data to prevent oversized objects
+
 ### Migration Roadmap
 
 **Phase 1** (Current): Basic 15s polling with auto-dispose
@@ -370,6 +411,8 @@ Structured logging located in `common/observability/logger.py`. Future enhanceme
 **Mobile UI & Experience:**
 * [x] Glassmorphism design system with Material 3 integration
 * [x] Adaptive polling with auto-dispose lifecycle management
+* [x] S3 feedback persistence with server-side encryption (SSE-S3)
+* [x] Three-screen navigation: Dashboard, Pet Profile, Tele-Vet
 * [ ] Dynamic glass design tokens (dark mode, blur intensity)
 * [ ] ETag-based cache optimization for polling
 * [ ] Battery-aware polling intervals
