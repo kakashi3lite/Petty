@@ -6,6 +6,8 @@ py.lint py.test sam.validate flutter.analyze flutter.test
 # Variables
 PYTHON_VERSION := 3.11
 VENV_PATH := .venv
+# Detect python interpreter (fallback if python3.11 not present on Windows)
+PY_INTERP := $(shell where python3.$(PYTHON_VERSION) >NUL 2>&1 && echo python3.$(PYTHON_VERSION) || (where python$(PYTHON_VERSION) >NUL 2>&1 && echo python$(PYTHON_VERSION) || echo python))
 FLUTTER_PATH := mobile_app
 SAM_CONFIG := infrastructure/samconfig.toml
 AWS_REGION := us-east-1
@@ -27,7 +29,7 @@ help: ## Show this help message
 bootstrap: ## Set up development environment
 	@echo "$(BLUE)🚀 Bootstrapping Petty development environment...$(RESET)"
 	@echo "$(YELLOW)Creating Python virtual environment...$(RESET)"
-	python$(PYTHON_VERSION) -m venv $(VENV_PATH)
+	$(PY_INTERP) -m venv $(VENV_PATH)
 	$(VENV_PATH)/Scripts/pip install --upgrade pip setuptools wheel
 	$(VENV_PATH)/Scripts/pip install -e ".[dev,security,observability]"
 	@echo "$(YELLOW)Installing pre-commit hooks...$(RESET)"
