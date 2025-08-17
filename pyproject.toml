@@ -185,6 +185,13 @@ addopts = [
     "--cov-report=xml",
     "--cov-fail-under=85",
 ]
+# Explicitly enable only required plugins when plugin autoload is disabled
+plugins = [
+    "pytest_cov",
+    "pytest_asyncio", 
+    "pytest_mock",
+    "hypothesis.extra.pytestplugin",
+]
 testpaths = ["tests"]
 filterwarnings = [
     "error",

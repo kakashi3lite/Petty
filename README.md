@@ -45,6 +45,24 @@ flutter run
 
 `make py.lint` • `make py.test` • `make flutter.analyze` • pre-commit hooks for consistent style.
 
+## Testing
+
+Petty uses pytest with plugin isolation for stability:
+
+- **Plugin Isolation**: `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` is set to prevent unexpected behavior from third-party plugins
+- **Explicit Plugins**: Only required plugins are enabled: `pytest_cov`, `pytest_asyncio`, `pytest_mock`, `hypothesis.extra.pytestplugin`
+- **Test Environment**: Use `.env.testing` for test-specific environment variables
+- **Test Commands**:
+  - `make py.test` - Run Python tests only
+  - `make test` - Run all tests (Python + Flutter)
+  - `make test-fast` - Run fast tests only (excludes slow and integration tests)
+
+**Test Markers**:
+- `slow` - Long-running tests
+- `integration` - Integration tests
+- `security` - Security-focused tests  
+- `property` - Property-based tests with Hypothesis
+
 ## Security Snapshot
 
 Input validators + output schemas + redaction + rate limiter + crypto utils (stub) + CodeQL + dependency updates.

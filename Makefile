@@ -188,7 +188,7 @@ ci-setup: ## Set up CI environment
 	pip install -e ".[dev,security,observability]"
 
 ci-test: ## Run tests in CI
-	pytest tests/ --junitxml=test-results.xml --cov=src --cov-report=xml
+	$(PYTEST_ENV) pytest tests/ --junitxml=test-results.xml --cov=src --cov-report=xml
 
 ci-security: ## Run security checks in CI
 	bandit -r src/ -f json -o bandit-report.json
