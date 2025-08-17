@@ -14,16 +14,14 @@ AI-driven behavior insights • Tail-ored nutrition & care planning • Privacy-
 | Personalization | Nutrition calculator, recommendation model scaffolding |
 | Privacy & Security | PII redaction, coordinate precision limiting, rate limiting, circuit breaker fallbacks |
 | Observability | Structured logging (JSON-friendly), future hooks for metrics/tracing |
-| Mobile Experience | Flutter (Material 3 + Glassmorphism) UI screens (Dashboard, Pet Profile, Tele‑Vet) |
+| Mobile Experience | Flutter glassmorphism UI with Material 3, adaptive polling (15s base), auto-dispose lifecycle, real-time dashboard with feedback system |
 | DevSecOps | CI (build/test), signing workflow, CodeQL, dependency updates (Dependabot), security digest generation |
 
-Badges (populate once workflows complete – coming soon to a doggo near you):
+**Workflow Status:**
 
-```text
-[![CI](https://github.com/kakashi3lite/Petty/actions/workflows/ci.yml/badge.svg)]()
-[![CodeQL](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml/badge.svg)]()
-[![Security Digest](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml/badge.svg)]()
-```
+[![CI](https://github.com/kakashi3lite/Petty/actions/workflows/ci.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml)
+[![Security Digest](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml)
 
 ---
 
@@ -58,7 +56,221 @@ Key security & resilience layers wrap ingress (validators), processing (rate lim
 
 ---
 
+## Mobile UI Theming & Glassmorphism 🎨
 
+### Design Philosophy
+
+Petty's mobile interface embraces **glassmorphism** combined with **Material 3** design principles to create an elegant, modern user experience that feels both sophisticated and pet-friendly.
+
+### Glassmorphism Implementation
+
+Our glassmorphism design uses a custom `GlassContainer` widget that provides:
+
+**Visual Properties:**
+- **Backdrop Blur**: `ImageFilter.blur(sigmaX: 14, sigmaY: 14)` creates the frosted glass effect
+- **Transparency**: `Colors.white.withOpacity(0.12)` for subtle background translucency
+- **Border Highlight**: `Colors.white.withOpacity(0.2)` creates the characteristic glass edge glow
+- **Border Radius**: Configurable radius (default 20px) for smooth, rounded corners
+
+**Design Tokens:**
+```dart
+// Glass Container Default Values
+BorderRadius: 20px
+BackdropBlur: 14px (sigma X/Y)
+Background: White 12% opacity
+Border: White 20% opacity, 1px width
+Padding: 16px (configurable)
+```
+
+### Material 3 Integration
+
+**Color Scheme:**
+- **Primary Gradient**: Ocean blue to cyan (`Color(0xFF2193b0)` → `Color(0xFF6dd5ed)`)
+- **Text Hierarchy**: White primary, white70 secondary for optimal contrast on gradient backgrounds
+- **Interactive Elements**: Green accent for positive feedback, red accent for negative feedback
+
+**Typography Scale:**
+- **Headlines**: `headlineMedium` for screen titles
+- **Metrics**: `titleLarge` with bold weight for key data points
+- **Labels**: `titleMedium` for secondary information
+- **Timestamps**: 12px with 70% opacity for subtle context
+
+### Component Architecture
+
+**GlassContainer Usage Patterns:**
+```dart
+// Metric cards with consistent spacing
+GlassContainer(
+  child: _Metric(
+    label: 'Heart Rate', 
+    value: '$hr BPM', 
+    icon: Icons.favorite
+  )
+)
+
+// Timeline events with interactive feedback
+GlassContainer(
+  child: Row(children: [
+    // Event content
+    // Feedback buttons (thumbs up/down)
+  ])
+)
+```
+
+**Responsive Design:**
+- **Padding**: Consistent 16px padding throughout for finger-friendly touch targets
+- **Spacing**: 12px between metric cards, 16px for major sections
+- **Safe Area**: All content respects device safe areas and notches
+
+### Accessibility Considerations
+
+- **Contrast Ratios**: White text on gradient backgrounds maintains WCAG AA compliance
+- **Touch Targets**: Minimum 44px for all interactive elements
+- **Visual Hierarchy**: Clear distinction between primary and secondary information
+- **Focus States**: Material 3 focus indicators for keyboard navigation
+
+### Future Enhancements
+
+- **Dark Mode**: Adaptive glass containers with darker tints
+- **Dynamic Colors**: Material You integration for system-aware theming  
+- **Custom Glass Variants**: Different blur intensities for information hierarchy
+- **Animation Tokens**: Consistent motion design across glass elements
+
+---
+
+## Adaptive Polling Plan 📡
+
+### Current Implementation
+
+Petty implements a **smart polling strategy** that balances real-time responsiveness with battery efficiency and network conservation.
+
+### Polling Architecture
+
+**Base Polling Strategy:**
+```dart
+static final _realTimeProvider = StreamProvider.autoDispose<Map<String, dynamic>>((ref) async* {
+  const pollInterval = Duration(seconds: 15); // Natural debounce >=12s
+  while (true) {
+    try {
+      final data = await service.getRealTimeData(_collarId);
+      yield data;
+    } catch (e) {
+      yield {"error": e.toString()};
+    }
+    await Future.delayed(pollInterval);
+  }
+});
+```
+
+**Key Features:**
+- **15-second base interval**: Balances responsiveness with battery conservation
+- **Auto-dispose**: Riverpod automatically stops polling when screen is disposed
+- **Error Resilience**: Graceful error handling with fallback data
+- **Debounce Protection**: Natural >=12s debounce prevents excessive API calls
+
+### Adaptive Strategies
+
+**Current Implemented:**
+1. **Screen Lifecycle Management**: Polling automatically stops when dashboard is disposed
+2. **Error Recovery**: Failed requests don't break the polling loop
+3. **Data Caching**: Riverpod providers cache latest successful responses
+
+**Planned Enhancements:**
+
+**Dynamic Interval Adjustment:**
+```dart
+// Planned implementation
+class AdaptivePollingStrategy {
+  Duration getPollingInterval({
+    required BatteryLevel battery,
+    required NetworkType network,
+    required AppLifecycleState lifecycle,
+  }) {
+    // Fast polling on WiFi + good battery
+    if (network == NetworkType.wifi && battery > 50) {
+      return Duration(seconds: 10);
+    }
+    // Slower on cellular or low battery
+    if (network == NetworkType.cellular || battery < 20) {
+      return Duration(seconds: 30);
+    }
+    return Duration(seconds: 15); // default
+  }
+}
+```
+
+### ETag Implementation Plan
+
+**Cache-Aware Polling:**
+```dart
+// Future implementation
+class ETagPollingService {
+  String? _lastETag;
+  
+  Future<PetData?> pollWithETag() async {
+    final headers = _lastETag != null 
+      ? {'If-None-Match': _lastETag!}
+      : <String, String>{};
+      
+    final response = await http.get(endpoint, headers: headers);
+    
+    if (response.statusCode == 304) {
+      return null; // No change, use cached data
+    }
+    
+    _lastETag = response.headers['ETag'];
+    return PetData.fromJson(response.body);
+  }
+}
+```
+
+### Battery Optimization
+
+**Lifecycle-Aware Polling:**
+- **Foreground**: Full 15s polling for active monitoring
+- **Background**: Reduced to 60s intervals (when supported)
+- **Screen Off**: Minimal polling or push notification fallback
+
+**Network-Aware Adjustments:**
+- **WiFi**: Aggressive polling (10-15s) for real-time feel
+- **Cellular**: Conservative polling (20-30s) to preserve data
+- **Poor Signal**: Exponential backoff to prevent battery drain
+
+### Backend Optimizations
+
+**Planned Server Enhancements:**
+1. **WebSocket Fallback**: For truly real-time critical events
+2. **Delta Updates**: Only send changed data fields
+3. **Push Notifications**: For urgent alerts (high heart rate, location changes)
+4. **Batch APIs**: Multiple data points in single request
+
+### Testing Strategy
+
+**Polling Test Coverage:**
+```dart
+// Widget test verification
+testWidgets('stops polling after dispose', (tester) async {
+  // Pump widget with fake API service
+  // Navigate away from dashboard
+  // Verify no additional API calls after disposal
+});
+```
+
+**Performance Monitoring:**
+- **API Call Frequency**: Track actual vs. expected poll intervals
+- **Battery Impact**: Monitor battery drain in production
+- **Network Usage**: Measure data consumption patterns
+- **Error Rates**: Track failed requests and recovery times
+
+### Migration Roadmap
+
+**Phase 1** (Current): Basic 15s polling with auto-dispose
+**Phase 2**: Dynamic intervals based on battery/network
+**Phase 3**: ETag support for bandwidth optimization  
+**Phase 4**: WebSocket integration for instant updates
+**Phase 5**: ML-based adaptive polling based on pet behavior patterns
+
+---
 
 ## Security & Privacy 🔐
 
@@ -155,6 +367,15 @@ Structured logging located in `common/observability/logger.py`. Future enhanceme
 ---
 \n## Roadmap 🗺️
 
+**Mobile UI & Experience:**
+* [x] Glassmorphism design system with Material 3 integration
+* [x] Adaptive polling with auto-dispose lifecycle management
+* [ ] Dynamic glass design tokens (dark mode, blur intensity)
+* [ ] ETag-based cache optimization for polling
+* [ ] Battery-aware polling intervals
+* [ ] WebSocket fallback for real-time critical events
+
+**Platform & Infrastructure:**
 * [ ] Real JWT / OIDC auth integration
 * [ ] SBOM + provenance (SLSA level goals)
 * [ ] Enhanced anomaly detection model
