@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'features/dashboard/presentation/dashboard_screen.dart';
 import 'features/pet_profile/presentation/pet_profile_screen.dart';
 import 'features/tele_vet/presentation/tele_vet_screen.dart';
+import 'theme/petty_theme.dart';
 
 class PettyApp extends StatelessWidget {
   const PettyApp({super.key});
@@ -18,18 +19,11 @@ class PettyApp extends StatelessWidget {
       ],
     );
 
-    final theme = ThemeData(
-      brightness: Brightness.dark,
-      useMaterial3: true,
-      colorScheme: const ColorScheme.dark(primary: Color(0xFF6dd5ed)),
-      textTheme: const TextTheme(
-        headlineMedium: TextStyle(fontWeight: FontWeight.bold),
-      ),
-    );
-
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
-      theme: theme,
+      theme: PettyTheme.lightTheme(),
+      darkTheme: PettyTheme.darkTheme(),
+      themeMode: ThemeMode.system, // Respects system theme preference
       routerConfig: router,
     );
   }
