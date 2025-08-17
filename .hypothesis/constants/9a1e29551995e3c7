@@ -1,0 +1,4 @@
+# file: /home/runner/work/Petty/Petty/src/common/security/output_schemas.py
+# hypothesis_version: 6.138.2
+
+[0.0, 1.0, 100, 200, 500, 1000, '&gt;', '&lt;', '<', '>', '^\\d{4}-\\d{2}-\\d{2}$', '^evt_[a-f0-9]{8}$', '^pet_[a-f0-9]{8,16}$', '^req_[a-f0-9]{8,16}$', 'alerts', 'behavioral_change', 'behaviors_detected', 'data:', 'description', 'events', 'high_stress', 'irregular_heartrate', 'javascript:', 'low_activity', 'message', 'not_dict', 'potential_injury', 'recommendations', 'risk_flags', 'success', 'summary', 'timestamp']

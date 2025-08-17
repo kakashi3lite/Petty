@@ -118,6 +118,12 @@ Pre-commit hooks configured in `.pre-commit-config.yaml` (install with `pre-comm
 ---
 \n## Testing Strategy 🧫
 
+**Serverless-First Approach:**
+* **Cloud-First Tests**: Validate real AWS Lambda execution patterns with proper event/context simulation
+* **Smart Mocking**: Use mocks for external services (DynamoDB, S3) while testing core business logic against real data patterns
+* **Fast Feedback**: Lightweight integration tests that run quickly in CI/CD pipelines
+* **Stub Flags**: Enable test mode behaviors without compromising production security
+
 | Layer | Purpose |
 |-------|---------|
 | Unit / Validation | Schema constraints, redaction behavior |
