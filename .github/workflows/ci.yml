@@ -130,6 +130,19 @@ jobs:
           flags: python
           name: python-coverage
 
+      - name: Run Codacy CLI Analysis
+        env:
+          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        run: |
+          bash .codacy/cli.sh analyze --directory src/ --format json --output codacy-results.json
+          bash .codacy/cli.sh analyze --directory src/ --format sarif --output codacy-results.sarif
+
+      - name: Upload Codacy results to GitHub
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: codacy-results.sarif
+
   flutter-test:
     name: Flutter Testing
     runs-on: ubuntu-latest
