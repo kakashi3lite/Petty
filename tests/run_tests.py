@@ -110,22 +110,27 @@ def main():
     print("INTEGRATION TESTS")
     print("=" * 40)
     
-    integration_test_file = tests_dir / "integration" / "test_integration.py"
-    if integration_test_file.exists():
-        print(f"\nLoading {integration_test_file.name}...")
-        module = import_test_module(integration_test_file)
-        if module:
-            # Find test classes
-            for attr_name in dir(module):
-                attr = getattr(module, attr_name)
-                if (isinstance(attr, type) and 
-                    attr_name.startswith('Test') and 
-                    attr_name != 'TestCase'):
-                    passed, failed = run_test_class(attr, attr_name)
-                    total_passed += passed
-                    total_failed += failed
-    else:
-        print(f"Integration test file not found: {integration_test_file}")
+    integration_test_files = [
+        tests_dir / "integration" / "test_integration.py",
+        tests_dir / "integration" / "test_timeline_flow.py"
+    ]
+    
+    for integration_test_file in integration_test_files:
+        if integration_test_file.exists():
+            print(f"\nLoading {integration_test_file.name}...")
+            module = import_test_module(integration_test_file)
+            if module:
+                # Find test classes
+                for attr_name in dir(module):
+                    attr = getattr(module, attr_name)
+                    if (isinstance(attr, type) and 
+                        attr_name.startswith('Test') and 
+                        attr_name != 'TestCase'):
+                        passed, failed = run_test_class(attr, attr_name)
+                        total_passed += passed
+                        total_failed += failed
+        else:
+            print(f"Integration test file not found: {integration_test_file}")
     
     # Summary
     print("\n" + "=" * 60)
