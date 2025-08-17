@@ -9,8 +9,6 @@ import logging
 import time
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
-import boto3
-from botocore.exceptions import ClientError, BotoCoreError
 
 # Import security and observability modules
 import sys
@@ -18,8 +16,21 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # >>> POWDTOOLS_REFACTOR_START >>>
 from common.observability.powertools import logger, tracer, metrics, MetricUnit  # centralized
-from aws_lambda_powertools.utilities.typing import LambdaContext  # type: ignore
+try:
+    from aws_lambda_powertools.utilities.typing import LambdaContext  # type: ignore
+except ImportError:
+    # Fallback when powertools not available
+    class LambdaContext:
+        aws_request_id: str = "unknown"
+        function_name: str = "unknown"
+        function_version: str = "unknown"
+        invoked_function_arn: str = "unknown"
+        memory_limit_in_mb: int = 128
+        remaining_time_in_millis = lambda self: 30000
 # <<< POWDTOOLS_REFACTOR_END <<<
+
+# Import Timestream helper
+from common.aws.timestream import write_records, build_collar_record
 
 try:
     from common.security.input_validators import validate_collar_data, InputValidator
@@ -36,17 +47,6 @@ TIMESTREAM_DATABASE = os.getenv("TIMESTREAM_DATABASE", "PettyDB")
 TIMESTREAM_TABLE = os.getenv("TIMESTREAM_TABLE", "CollarMetrics")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
-
-# Initialize AWS clients with retry configuration
-session = boto3.Session()
-timestream_client = session.client(
-    'timestream-write',
-    region_name=AWS_REGION,
-    config=boto3.session.Config(
-        retries={'max_attempts': 3, 'mode': 'adaptive'},
-        max_pool_connections=50
-    )
-)
 
 class DataProcessor:
     """Secure data processor for collar telemetry"""
@@ -102,6 +102,27 @@ class DataProcessor:
             else:
                 return {"statusCode": 200, "body": json.dumps({"ok": True})}
                 
+        except ValueError as e:
+            # Record validation failure metrics
+            metrics.add_metric(name="ValidationErrors", unit=MetricUnit.Count, value=1)
+            
+            self.logger.warning(
+                "Validation failed",
+                error=str(e),
+                request_id=request_id,
+                collar_id=event_body.get("collar_id") if isinstance(event_body, dict) else "unknown"
+            )
+            
+            if SECURITY_MODULES_AVAILABLE:
+                return secure_response_wrapper(
+                    success=False,
+                    message="Validation failed",
+                    error_code="VALIDATION_ERROR",
+                    request_id=request_id
+                )
+            else:
+                return {"statusCode": 400, "body": json.dumps({"error": str(e), "details": "Validation failed"})}
+                
         except Exception as e:
             # Record failure metrics
             metrics.add_metric(name="FailedIngestion", unit=MetricUnit.Count, value=1)
@@ -122,30 +143,68 @@ class DataProcessor:
                     request_id=request_id
                 )
             else:
-                return {"statusCode": 400, "body": json.dumps({"error": str(e)})}
+                return {"statusCode": 500, "body": json.dumps({"error": "Internal server error"})}
     
     def _fallback_validate(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Fallback validation when security modules unavailable"""
+        """
+        Fallback validation when security modules unavailable.
+        Validates: collar_id, ISO8601 timestamp, int heart_rate, enum activity_level, GeoJSON Point
+        """
         required_fields = ["collar_id", "timestamp", "heart_rate", "activity_level", "location"]
         
         for field in required_fields:
             if field not in data:
                 raise ValueError(f"Missing required field: {field}")
         
-        # Basic type and range validation
-        hr = data["heart_rate"]
-        if not isinstance(hr, (int, float)) or not (30 <= hr <= 300):
-            raise ValueError(f"Invalid heart rate: {hr}")
+        # Validate collar_id (string)
+        collar_id = data["collar_id"]
+        if not isinstance(collar_id, str) or not collar_id.strip():
+            raise ValueError("collar_id must be a non-empty string")
         
+        # Validate timestamp (ISO8601 format)
+        timestamp = data["timestamp"]
+        if not isinstance(timestamp, str):
+            raise ValueError("timestamp must be an ISO8601 string")
+        try:
+            # Try parsing as ISO8601
+            datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+        except ValueError:
+            raise ValueError("timestamp must be in ISO8601 format")
+        
+        # Validate heart_rate (integer, reasonable range)
+        hr = data["heart_rate"]
+        if not isinstance(hr, int) or not (30 <= hr <= 300):
+            raise ValueError(f"heart_rate must be an integer between 30 and 300, got: {hr}")
+        
+        # Validate activity_level (enum: 0, 1, 2)
         activity = data["activity_level"]
-        if not isinstance(activity, int) or not (0 <= activity <= 2):
-            raise ValueError(f"Invalid activity level: {activity}")
+        if not isinstance(activity, int) or activity not in [0, 1, 2]:
+            raise ValueError(f"activity_level must be 0, 1, or 2, got: {activity}")
+        
+        # Validate location (GeoJSON Point)
+        location = data["location"]
+        if not isinstance(location, dict):
+            raise ValueError("location must be a GeoJSON Point object")
+        
+        if location.get("type") != "Point":
+            raise ValueError("location type must be 'Point'")
+        
+        coordinates = location.get("coordinates")
+        if not isinstance(coordinates, list) or len(coordinates) != 2:
+            raise ValueError("location coordinates must be [longitude, latitude] array")
+        
+        longitude, latitude = coordinates
+        if not isinstance(longitude, (int, float)) or not isinstance(latitude, (int, float)):
+            raise ValueError("coordinates must be numeric values")
+        
+        if not (-180 <= longitude <= 180) or not (-90 <= latitude <= 90):
+            raise ValueError("coordinates out of valid range")
         
         return data
     
     def _write_to_timestream(self, data: Dict[str, Any], request_id: str) -> Dict[str, Any]:
         """
-        Write validated data to AWS Timestream
+        Write validated data to AWS Timestream using helper module.
         
         Args:
             data: Validated collar data
@@ -155,61 +214,22 @@ class DataProcessor:
             Timestream write response
         """
         try:
-            # Prepare Timestream record
-            current_time = str(int(time.time() * 1000))  # Milliseconds since epoch
+            # Build Timestream record using helper
+            record = build_collar_record(
+                collar_id=data["collar_id"],
+                timestamp=data["timestamp"],
+                heart_rate=data["heart_rate"],
+                activity_level=data["activity_level"],
+                location=data["location"],
+                environment=ENVIRONMENT
+            )
             
-            # Extract location data safely
-            location = data.get("location", {})
-            coordinates = location.get("coordinates", [0, 0])
-            longitude = coordinates[0] if len(coordinates) > 0 else 0
-            latitude = coordinates[1] if len(coordinates) > 1 else 0
-            
-            record = {
-                'Time': current_time,
-                'TimeUnit': 'MILLISECONDS',
-                'Dimensions': [
-                    {
-                        'Name': 'CollarId',
-                        'Value': str(data["collar_id"]),
-                        'DimensionValueType': 'VARCHAR'
-                    },
-                    {
-                        'Name': 'Environment',
-                        'Value': ENVIRONMENT,
-                        'DimensionValueType': 'VARCHAR'
-                    }
-                ],
-                'MeasureName': 'CollarMetrics',
-                'MeasureValueType': 'MULTI',
-                'MeasureValues': [
-                    {
-                        'Name': 'HeartRate',
-                        'Value': str(data["heart_rate"]),
-                        'Type': 'DOUBLE'
-                    },
-                    {
-                        'Name': 'ActivityLevel',
-                        'Value': str(data["activity_level"]),
-                        'Type': 'BIGINT'
-                    },
-                    {
-                        'Name': 'Longitude',
-                        'Value': str(longitude),
-                        'Type': 'DOUBLE'
-                    },
-                    {
-                        'Name': 'Latitude',
-                        'Value': str(latitude),
-                        'Type': 'DOUBLE'
-                    }
-                ]
-            }
-            
-            # Write to Timestream with retry logic
-            response = timestream_client.write_records(
-                DatabaseName=TIMESTREAM_DATABASE,
-                TableName=TIMESTREAM_TABLE,
-                Records=[record]
+            # Write to Timestream using helper with retry logic
+            response = write_records(
+                database=TIMESTREAM_DATABASE,
+                table=TIMESTREAM_TABLE,
+                records=[record],
+                region_name=AWS_REGION
             )
             
             self.logger.debug(
@@ -222,7 +242,7 @@ class DataProcessor:
             
             return response
             
-        except (ClientError, BotoCoreError) as e:
+        except Exception as e:
             self.logger.error(
                 "Timestream write failed",
                 error=str(e),
@@ -268,7 +288,7 @@ def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, A
                         request_id=request_id
                     )
                 else:
-                    return {"statusCode": 400, "body": json.dumps({"error": "Invalid JSON"})}
+                    return {"statusCode": 400, "body": json.dumps({"error": "Invalid JSON", "details": "Request body must be valid JSON"})}
         
         if not isinstance(body, dict):
             logger.error("Request body is not a dictionary", request_id=request_id)
@@ -280,7 +300,7 @@ def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, A
                     request_id=request_id
                 )
             else:
-                return {"statusCode": 400, "body": json.dumps({"error": "Invalid format"})}
+                return {"statusCode": 400, "body": json.dumps({"error": "Invalid format", "details": "Request body must be JSON object"})}
         
         logger.append_keys(collar_id=body.get("collar_id"))
         logger.info("Processing collar data ingestion", request_id=request_id)
