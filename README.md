@@ -14,6 +14,8 @@ Base64 TL;DR (decode it): Petty: AI + behavior + care + privacy-by-design + obse
 [![CodeQL](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml)
 [![Security](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml)
 
+> Extended docs: [Consumer Overview](docs/CONSUMER_OVERVIEW.md) • [Mobile UI & Adaptive Polling](docs/MOBILE_UI_ADAPTIVE_POLLING.md)
+
 ## Core Features
 
 * Behavior timeline + rules engine (guardrails on)
@@ -70,5 +72,8 @@ Decode with:
 ```bash
 echo 'U2l0LiBTdGF5LiBEZXBsb3kuIEFkdmljZSB5b3VyIHBldCdzIGh1bWFuLg==' | base64 -d
 ```
+
+---
+Strategic docs moved out of the README to stay lean. See the linked extended docs above.
 
 
