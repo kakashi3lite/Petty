@@ -14,7 +14,72 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   static const String _apiBaseUrl = 'https://api.example.com';
   static const String _collarId = 'SN-123';
   final _service = APIService(baseUrl: _apiBaseUrl);
-  final Set<String> _ack = {};
+  
+  // Track feedback states: successful submissions and loading states
+  final Set<String> _positiveSubmitted = {};
+  final Set<String> _negativeSubmitted = {};
+  final Set<String> _submittingPositive = {};
+  final Set<String> _submittingNegative = {};
+
+  Future<void> _submitFeedback(String eventId, String feedback) async {
+    // Prevent multiple submissions for the same event and feedback type
+    final isPositive = feedback == 'correct';
+    final alreadySubmitted = isPositive 
+        ? _positiveSubmitted.contains(eventId)
+        : _negativeSubmitted.contains(eventId);
+    
+    if (alreadySubmitted) return;
+    
+    // Check if already submitting
+    final isSubmitting = isPositive 
+        ? _submittingPositive.contains(eventId)
+        : _submittingNegative.contains(eventId);
+    
+    if (isSubmitting) return;
+    
+    // Mark as submitting
+    setState(() {
+      if (isPositive) {
+        _submittingPositive.add(eventId);
+      } else {
+        _submittingNegative.add(eventId);
+      }
+    });
+    
+    try {
+      await _service.submitFeedback(eventId, feedback);
+      
+      // Mark as successfully submitted and remove from submitting
+      setState(() {
+        if (isPositive) {
+          _submittingPositive.remove(eventId);
+          _positiveSubmitted.add(eventId);
+        } else {
+          _submittingNegative.remove(eventId);
+          _negativeSubmitted.add(eventId);
+        }
+      });
+    } catch (e) {
+      // Remove from submitting state on error and show error message
+      setState(() {
+        if (isPositive) {
+          _submittingPositive.remove(eventId);
+        } else {
+          _submittingNegative.remove(eventId);
+        }
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to submit feedback: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,7 +134,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                     final ts = ev['timestamp'] ?? '';
                                     final label = ev['behavior'] ?? 'Event';
                                     final id = ev['event_id'] ?? 'id';
-                                    final acked = _ack.contains(id);
+                                    
+                                    // Determine button states
+                                    final positiveSubmitted = _positiveSubmitted.contains(id);
+                                    final negativeSubmitted = _negativeSubmitted.contains(id);
+                                    final submittingPositive = _submittingPositive.contains(id);
+                                    final submittingNegative = _submittingNegative.contains(id);
+                                    
                                     return Padding(
                                       padding: const EdgeInsets.only(bottom: 10),
                                       child: GlassContainer(
@@ -77,16 +148,44 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                           children: [
                                             Expanded(child: Text('$ts — $label', style: const TextStyle(color: Colors.white))),
                                             IconButton(
-                                              icon: Icon(Icons.thumb_up, color: acked ? Colors.greenAccent : Colors.white70),
-                                              onPressed: () async {
-                                                try { await _service.submitFeedback(id, 'correct'); setState(()=>_ack.add(id)); } catch (_) {}
-                                              },
+                                              icon: submittingPositive 
+                                                  ? const SizedBox(
+                                                      width: 16,
+                                                      height: 16,
+                                                      child: CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.greenAccent),
+                                                      ),
+                                                    )
+                                                  : Icon(
+                                                      Icons.thumb_up, 
+                                                      color: positiveSubmitted 
+                                                          ? Colors.greenAccent 
+                                                          : Colors.white70
+                                                    ),
+                                              onPressed: positiveSubmitted || submittingPositive || submittingNegative
+                                                  ? null 
+                                                  : () => _submitFeedback(id, 'correct'),
                                             ),
                                             IconButton(
-                                              icon: Icon(Icons.thumb_down, color: acked ? Colors.redAccent : Colors.white70),
-                                              onPressed: () async {
-                                                try { await _service.submitFeedback(id, 'incorrect'); setState(()=>_ack.add(id)); } catch (_) {}
-                                              },
+                                              icon: submittingNegative 
+                                                  ? const SizedBox(
+                                                      width: 16,
+                                                      height: 16,
+                                                      child: CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.redAccent),
+                                                      ),
+                                                    )
+                                                  : Icon(
+                                                      Icons.thumb_down, 
+                                                      color: negativeSubmitted 
+                                                          ? Colors.redAccent 
+                                                          : Colors.white70
+                                                    ),
+                                              onPressed: negativeSubmitted || submittingNegative || submittingPositive
+                                                  ? null 
+                                                  : () => _submitFeedback(id, 'incorrect'),
                                             ),
                                           ],
                                         ),
