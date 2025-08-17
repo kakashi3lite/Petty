@@ -2,10 +2,28 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: Petty serverless stack
 
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment stage
+  
+  ArtifactsBucket:
+    Type: String
+    Default: petty-artifacts-dev
+    Description: S3 bucket for deployment artifacts
+  
+  FeedbackBucketName:
+    Type: String
+    Default: petty-feedback-data-dev
+    Description: S3 bucket for feedback data storage
+
 Globals:
   Function:
     Timeout: 15
     Runtime: python3.11
+    Tracing: Active
 
 Resources:
   TimestreamDatabase:
@@ -24,7 +42,7 @@ Resources:
   FeedbackDataBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: petty-feedback-data
+      BucketName: !Ref FeedbackBucketName
 
   DataProcessorRole:
     Type: AWS::IAM::Role
@@ -43,13 +61,13 @@ Resources:
               - Effect: Allow
                 Action:
                   - timestream:WriteRecords
-                Resource: "*"
+                Resource: !Sub "arn:aws:timestream:${AWS::Region}:${AWS::AccountId}:database/${TimestreamDatabase}/table/${TimestreamTable}"
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: "*"
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/DataProcessorFunction*"
 
   DataProcessorFunction:
     Type: AWS::Serverless::Function
@@ -96,17 +114,21 @@ Resources:
                 Action:
                   - timestream:Select
                   - timestream:DescribeTable
-                Resource: "*"
+                Resource: 
+                  - !Sub "arn:aws:timestream:${AWS::Region}:${AWS::AccountId}:database/${TimestreamDatabase}"
+                  - !Sub "arn:aws:timestream:${AWS::Region}:${AWS::AccountId}:database/${TimestreamDatabase}/table/${TimestreamTable}"
               - Effect: Allow
                 Action:
                   - s3:PutObject
-                Resource: "*"
+                Resource: !Sub "${FeedbackDataBucket}/*"
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: "*"
+                Resource: 
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/TimelineGeneratorFunction*"
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/FeedbackHandlerFunction*"
 
   TimelineGeneratorFunction:
     Type: AWS::Serverless::Function

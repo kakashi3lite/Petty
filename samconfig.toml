@@ -1,0 +1,93 @@
+# SAM configuration file for Petty project
+# https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-config.html
+
+version = 0.1
+
+[default]
+[default.global.parameters]
+stack_name = "petty-stack"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+image_repositories = []
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.validate.parameters]
+lint = true
+
+[default.deploy.parameters]
+confirm_changeset = true
+fail_on_empty_changeset = false
+stack_name = "petty-stack"
+capabilities = "CAPABILITY_IAM"
+disable_rollback = false
+image_repositories = []
+
+[default.package.parameters]
+resolve_s3 = true
+
+[default.sync.parameters]
+watch = true
+
+[default.local_start_api.parameters]
+warm_containers = "EAGER"
+
+[default.local_start_lambda.parameters]
+warm_containers = "EAGER"
+
+# Development environment
+[dev]
+[dev.deploy.parameters]
+stack_name = "petty-stack-dev"
+s3_bucket = "petty-artifacts-dev"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+    "Stage=dev",
+    "ArtifactsBucket=petty-artifacts-dev", 
+    "FeedbackBucketName=petty-feedback-data-dev"
+]
+tags = [
+    "Environment=dev",
+    "Project=Petty"
+]
+
+# Staging environment  
+[staging]
+[staging.deploy.parameters]
+stack_name = "petty-stack-staging"
+s3_bucket = "petty-artifacts-staging"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+    "Stage=staging",
+    "ArtifactsBucket=petty-artifacts-staging",
+    "FeedbackBucketName=petty-feedback-data-staging"
+]
+tags = [
+    "Environment=staging",
+    "Project=Petty"
+]
+
+# Production environment
+[prod]
+[prod.deploy.parameters]
+stack_name = "petty-stack-prod"
+s3_bucket = "petty-artifacts-prod"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+    "Stage=prod",
+    "ArtifactsBucket=petty-artifacts-prod",
+    "FeedbackBucketName=petty-feedback-data-prod"
+]
+tags = [
+    "Environment=prod",
+    "Project=Petty"
+]
