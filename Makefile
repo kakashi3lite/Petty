@@ -1,5 +1,6 @@
 # Petty Production-Grade Makefile
-.PHONY: help bootstrap test lint security deploy clean docs
+.PHONY: help bootstrap test lint security deploy clean docs \
+py.lint py.test sam.validate flutter.analyze flutter.test
 .DEFAULT_GOAL := help
 
 # Variables
@@ -58,6 +59,29 @@ lint: ## Run code linting and formatting
 	@echo "$(YELLOW)Flutter linting...$(RESET)"
 	cd $(FLUTTER_PATH) && dart format . && flutter analyze
 	@echo "$(GREEN)✅ Linting complete!$(RESET)"
+
+# --- Granular convenience targets (Python / SAM / Flutter) ---
+py.lint: ## Python lint + type check only
+	@echo "$(BLUE)🔍 Python lint (ruff, black --check, mypy)...$(RESET)"
+	$(VENV_PATH)/Scripts/ruff check src/ tests/
+	$(VENV_PATH)/Scripts/black --check src/ tests/
+	$(VENV_PATH)/Scripts/mypy src/ tests/
+
+py.test: ## Python tests only
+	@echo "$(BLUE)🧪 Python tests...$(RESET)"
+	$(VENV_PATH)/Scripts/pytest tests/ -v --tb=short
+
+sam.validate: ## Validate SAM template only
+	@echo "$(BLUE)🧪 Validating SAM template...$(RESET)"
+	sam validate --lint
+
+flutter.analyze: ## Run Flutter analyzer
+	@echo "$(BLUE)🔎 Flutter analyze...$(RESET)"
+	cd $(FLUTTER_PATH) && flutter analyze
+
+flutter.test: ## Run Flutter tests only
+	@echo "$(BLUE)🧪 Flutter tests...$(RESET)"
+	cd $(FLUTTER_PATH) && flutter test
 
 security: ## Run security checks
 	@echo "$(BLUE)🔒 Running security checks...$(RESET)"
