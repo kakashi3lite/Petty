@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../services/api_service.dart';
@@ -15,10 +16,56 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   static const String _collarId = 'SN-123';
   final _service = APIService(baseUrl: _apiBaseUrl);
   final Set<String> _ack = {};
+  
+  late StreamController<Map<String, dynamic>> _realTimeController;
+  Timer? _pollingTimer;
+  Timer? _debounceTimer;
+  DateTime? _lastUpdated;
+
+  @override
+  void initState() {
+    super.initState();
+    _realTimeController = StreamController<Map<String, dynamic>>.broadcast();
+    _startPolling();
+  }
+
+  @override
+  void dispose() {
+    _pollingTimer?.cancel();
+    _debounceTimer?.cancel();
+    _realTimeController.close();
+    super.dispose();
+  }
+
+  void _startPolling() {
+    _pollingTimer = Timer.periodic(const Duration(seconds: 15), (_) => _fetchRealTimeData());
+    _fetchRealTimeData(); // Initial fetch
+  }
+
+  void _fetchRealTimeData() {
+    // Cancel previous debounce timer if it exists
+    _debounceTimer?.cancel();
+    
+    // Set up debounce timer (12 seconds minimum)
+    _debounceTimer = Timer(const Duration(seconds: 12), () async {
+      try {
+        final data = await _service.getRealTimeData(_collarId);
+        if (mounted) {
+          setState(() {
+            _lastUpdated = DateTime.now();
+          });
+          _realTimeController.add(data);
+        }
+      } catch (e) {
+        if (mounted) {
+          _realTimeController.add({"error": e.toString()});
+        }
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final asyncData = ref.watch(_realTimeProvider);
     final timelineAsync = ref.watch(_timelineProvider);
     return Scaffold(
       body: Stack(
@@ -39,10 +86,31 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 children: [
                   Text('Real‑Time Dashboard',
                       style: Theme.of(context).textTheme.headlineMedium?.copyWith(color: Colors.white)),
+                  if (_lastUpdated != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Last updated: ${_formatTime(_lastUpdated!)}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
                   const SizedBox(height: 16),
                   Expanded(
-                    child: asyncData.when(
-                      data: (data) {
+                    child: StreamBuilder<Map<String, dynamic>>(
+                      stream: _realTimeController.stream,
+                      builder: (context, snapshot) {
+                        if (snapshot.hasError) {
+                          return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: Colors.white)));
+                        }
+                        
+                        if (!snapshot.hasData) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        
+                        final data = snapshot.data!;
                         final hr = data['heart_rate'] ?? '--';
                         final act = _describeActivity(data['activity_level']);
                         final loc = _describeLocation(data['location']);
@@ -101,8 +169,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           ],
                         );
                       },
-                      loading: () => const Center(child: CircularProgressIndicator()),
-                      error: (e, _) => Center(child: Text('Error: $e', style: const TextStyle(color: Colors.white))),
                     ),
                   ),
                 ],
@@ -112,6 +178,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         ],
       ),
     );
+  }
+
+  String _formatTime(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+    
+    if (difference.inSeconds < 60) {
+      return '${difference.inSeconds}s ago';
+    } else if (difference.inMinutes < 60) {
+      return '${difference.inMinutes}m ago';
+    } else {
+      return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+    }
   }
 
   static String _describeActivity(dynamic level) {
@@ -130,14 +209,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     }
     return '--';
   }
-
-  static final _realTimeProvider = StreamProvider<Map<String, dynamic>>((ref) async* {
-    final service = APIService(baseUrl: _apiBaseUrl);
-    while (true) {
-      try { yield await service.getRealTimeData(_collarId); } catch (e) { yield {"error": e.toString()}; }
-      await Future.delayed(const Duration(seconds: 15));
-    }
-  });
 
   static final _timelineProvider = FutureProvider<List<dynamic>>((ref) async {
     final service = APIService(baseUrl: _apiBaseUrl);
