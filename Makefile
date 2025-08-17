@@ -196,10 +196,29 @@ ci-setup: ## Set up CI environment
 ci-test: ## Run tests in CI
 	pytest tests/ --junitxml=test-results.xml --cov=src --cov-report=xml
 
+ci-py-test: ## Run Python tests in CI (alias for ci-test)
+	pytest tests/ --junitxml=test-results.xml --cov=src --cov-report=xml
+
 ci-security: ## Run security checks in CI
 	bandit -r src/ -f json -o bandit-report.json
 	safety check --json --output safety-report.json
 	detect-secrets scan --baseline .secrets.baseline
+
+ci-py-lint: ## Run Python linting in CI
+	ruff check src/ tests/ --output-format=github
+	black --check src/ tests/
+	isort --check-only src/ tests/
+	mypy src/ tests/ --junit-xml=mypy-report.xml
+
+ci-sam-validate: ## Run SAM validation in CI
+	sam validate --template infrastructure/template.yaml --lint
+
+ci-flutter-analyze: ## Run Flutter analysis in CI
+	cd $(FLUTTER_PATH) && dart format --set-exit-if-changed .
+	cd $(FLUTTER_PATH) && flutter analyze --fatal-infos
+
+ci-flutter-test: ## Run Flutter tests in CI
+	cd $(FLUTTER_PATH) && flutter test --coverage
 
 # Development helpers
 dev-setup: bootstrap ## Alias for bootstrap
