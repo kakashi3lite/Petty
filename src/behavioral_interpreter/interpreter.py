@@ -17,6 +17,9 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
+# Import interpreter configuration
+from .config import config
+
 try:
     from common.security.input_validators import CollarDataModel, BehaviorEventModel
     from common.security.output_schemas import BehaviorAnalysisOutput, TimelineEventOutput
@@ -86,6 +89,19 @@ class BehavioralInterpreter:
             timeout=60
         )
         
+        # Load interpreter configuration
+        self.config = config
+        
+        # Log configuration for auditability
+        try:
+            self.logger.info(
+                "Behavioral interpreter initialized",
+                thresholds=self.config.to_dict()
+            )
+        except TypeError:
+            # Fallback for basic logger without structured logging support
+            self.logger.info(f"Behavioral interpreter initialized with thresholds: {self.config.to_dict()}")
+        
         # Versioned behavior rules for auditability
         self.behavior_rules = self._load_behavior_rules()
         self.rule_version = "1.0.0"
@@ -140,12 +156,16 @@ class BehavioralInterpreter:
         try:
             return self.circuit_breaker.call(self._analyze_timeline_internal, collar_data)
         except Exception as e:
-            self.logger.error(
-                "Behavior analysis failed",
-                error=str(e),
-                data_points=len(collar_data) if collar_data else 0,
-                rule_version=self.rule_version
-            )
+            try:
+                self.logger.error(
+                    "Behavior analysis failed",
+                    error=str(e),
+                    data_points=len(collar_data) if collar_data else 0,
+                    rule_version=self.rule_version
+                )
+            except TypeError:
+                data_points = len(collar_data) if collar_data else 0
+                self.logger.error(f"Behavior analysis failed: {str(e)}, data points: {data_points}, rule version: {self.rule_version}")
             raise
     
     def _analyze_timeline_internal(self, collar_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -159,11 +179,15 @@ class BehavioralInterpreter:
         # Validate and sanitize input data
         validated_data = self._validate_input_data(collar_data)
         
-        self.logger.info(
-            "Starting behavior analysis",
-            data_points=len(validated_data),
-            rule_version=self.rule_version
-        )
+        try:
+            self.logger.info(
+                "Starting behavior analysis",
+                data_points=len(validated_data),
+                rule_version=self.rule_version
+            )
+        except TypeError:
+            # Fallback for basic logger
+            self.logger.info(f"Starting behavior analysis: {len(validated_data)} data points, rule version {self.rule_version}")
         
         # Apply behavior detection rules
         for rule_name, rule in self.behavior_rules.items():
@@ -171,28 +195,38 @@ class BehavioralInterpreter:
                 detected_events = self._apply_behavior_rule(validated_data, rule)
                 events.extend(detected_events)
                 
-                self.logger.debug(
-                    "Applied behavior rule",
-                    rule_name=rule_name,
-                    events_detected=len(detected_events)
-                )
+                try:
+                    self.logger.debug(
+                        "Applied behavior rule",
+                        rule_name=rule_name,
+                        events_detected=len(detected_events)
+                    )
+                except TypeError:
+                    self.logger.debug(f"Applied behavior rule {rule_name}: {len(detected_events)} events detected")
             except Exception as e:
-                self.logger.warning(
-                    "Behavior rule failed",
-                    rule_name=rule_name,
-                    error=str(e)
-                )
+                try:
+                    self.logger.warning(
+                        "Behavior rule failed",
+                        rule_name=rule_name,
+                        error=str(e)
+                    )
+                except TypeError:
+                    self.logger.warning(f"Behavior rule {rule_name} failed: {str(e)}")
                 # Continue with other rules on failure
                 continue
         
         # Validate and sanitize output
         sanitized_events = self._validate_output_events(events)
         
-        self.logger.info(
-            "Behavior analysis completed",
-            total_events=len(sanitized_events),
-            behaviors_detected=[e.get("behavior") for e in sanitized_events]
-        )
+        try:
+            self.logger.info(
+                "Behavior analysis completed",
+                total_events=len(sanitized_events),
+                behaviors_detected=[e.get("behavior") for e in sanitized_events]
+            )
+        except TypeError:
+            behaviors = [e.get("behavior") for e in sanitized_events]
+            self.logger.info(f"Behavior analysis completed: {len(sanitized_events)} events, behaviors: {behaviors}")
         
         return sanitized_events
     
@@ -257,6 +291,9 @@ class BehavioralInterpreter:
                         sanitized_metadata[str(k)[:50]] = str(v)[:200]
                     sanitized_event["metadata"] = sanitized_metadata
                 
+                # Note: _rationale field is intentionally excluded from API response
+                # It's only used for internal logging and auditing
+                
                 sanitized_events.append(sanitized_event)
                 
             except Exception as e:
@@ -293,11 +330,21 @@ class BehavioralInterpreter:
                     hr_mean = mean(heart_rates)
                     hr_std = pstdev(heart_rates) if len(heart_rates) > 1 else 0
                     
+                    # Use configurable threshold instead of magic number
+                    hr_variance_threshold = self.config.get_threshold('deep_sleep', 'hr_variance')
+                    
                     # Check if matches deep sleep criteria
-                    if (hr_std < 3 and 
+                    if (hr_std < hr_variance_threshold and 
                         rule.heart_rate_range[0] <= hr_mean <= rule.heart_rate_range[1]):
                         
-                        events.append({
+                        # Create rationale for internal logging
+                        rationale = (
+                            f"Low heart rate variability ({hr_std:.2f} < {hr_variance_threshold}) "
+                            f"with stable HR ({hr_mean:.1f} in range {rule.heart_rate_range}) "
+                            f"during {len(low_activity)} low-activity periods"
+                        )
+                        
+                        event = {
                             "timestamp": low_activity[0].get("timestamp"),
                             "behavior": rule.name,
                             "confidence": rule.confidence_threshold,
@@ -306,8 +353,22 @@ class BehavioralInterpreter:
                                 "heart_rate_mean": round(hr_mean, 1),
                                 "heart_rate_std": round(hr_std, 2),
                                 "duration_points": len(low_activity)
-                            }
-                        })
+                            },
+                            "_rationale": rationale  # Internal field for logging only
+                        }
+                        
+                        # Log rationale for internal audit
+                        try:
+                            self.logger.debug(
+                                "Deep sleep detected",
+                                event_id=event["event_id"],
+                                rationale=rationale
+                            )
+                        except TypeError:
+                            # Fallback for basic logger
+                            self.logger.debug(f"Deep sleep detected - {event['event_id']}: {rationale}")
+                        
+                        events.append(event)
                 except Exception as e:
                     self.logger.warning(f"Deep sleep detection failed: {e}")
         
@@ -340,11 +401,21 @@ class BehavioralInterpreter:
                     heart_rates = [p.get("heart_rate", 0) for p in moderate_activity]
                     hr_mean = mean(heart_rates) if heart_rates else 0
                     
+                    # Use configurable threshold instead of magic number
+                    radius_threshold = self.config.get_threshold('anxious_pacing', 'radius')
+                    
                     # Small radius + elevated HR = anxious pacing
-                    if (radius < 0.0007 and  # ~70m at mid-latitudes
+                    if (radius < radius_threshold and
                         rule.heart_rate_range[0] <= hr_mean <= rule.heart_rate_range[1]):
                         
-                        events.append({
+                        # Create rationale for internal logging
+                        rationale = (
+                            f"Small movement radius ({radius:.6f} < {radius_threshold}) "
+                            f"with elevated HR ({hr_mean:.1f} in range {rule.heart_rate_range}) "
+                            f"over {len(moderate_activity)} moderate-activity periods"
+                        )
+                        
+                        event = {
                             "timestamp": moderate_activity[0].get("timestamp"),
                             "behavior": rule.name,
                             "confidence": rule.confidence_threshold,
@@ -353,8 +424,22 @@ class BehavioralInterpreter:
                                 "movement_radius": round(radius, 6),
                                 "heart_rate_mean": round(hr_mean, 1),
                                 "activity_points": len(moderate_activity)
-                            }
-                        })
+                            },
+                            "_rationale": rationale  # Internal field for logging only
+                        }
+                        
+                        # Log rationale for internal audit
+                        try:
+                            self.logger.debug(
+                                "Anxious pacing detected",
+                                event_id=event["event_id"],
+                                rationale=rationale
+                            )
+                        except TypeError:
+                            # Fallback for basic logger
+                            self.logger.debug(f"Anxious pacing detected - {event['event_id']}: {rationale}")
+                        
+                        events.append(event)
             except Exception as e:
                 self.logger.warning(f"Anxious pacing detection failed: {e}")
         
@@ -372,6 +457,9 @@ class BehavioralInterpreter:
             cycles = 0
             last_high_activity = None
             
+            # Use configurable threshold instead of magic number
+            distance_threshold = self.config.get_threshold('playing_fetch', 'distance')
+            
             for point in sorted_data:
                 activity = point.get("activity_level", 0)
                 
@@ -381,13 +469,20 @@ class BehavioralInterpreter:
                     # Calculate distance moved
                     distance = self._calculate_distance(last_high_activity, point)
                     
-                    if distance > 0.001:  # ~100m movement
+                    if distance > distance_threshold:
                         cycles += 1
                         last_high_activity = None
             
             # If enough cycles detected, it's likely fetch
             if cycles >= 2:
-                events.append({
+                # Create rationale for internal logging
+                rationale = (
+                    f"Detected {cycles} high->low activity cycles "
+                    f"with movement distance > {distance_threshold} "
+                    f"across {len(sorted_data)} data points"
+                )
+                
+                event = {
                     "timestamp": sorted_data[0].get("timestamp"),
                     "behavior": rule.name,
                     "confidence": rule.confidence_threshold,
@@ -395,8 +490,22 @@ class BehavioralInterpreter:
                     "metadata": {
                         "fetch_cycles": cycles,
                         "data_points": len(sorted_data)
-                    }
-                })
+                    },
+                    "_rationale": rationale  # Internal field for logging only
+                }
+                
+                # Log rationale for internal audit
+                try:
+                    self.logger.debug(
+                        "Playing fetch detected",
+                        event_id=event["event_id"],
+                        rationale=rationale
+                    )
+                except TypeError:
+                    # Fallback for basic logger
+                    self.logger.debug(f"Playing fetch detected - {event['event_id']}: {rationale}")
+                
+                events.append(event)
         except Exception as e:
             self.logger.warning(f"Playing fetch detection failed: {e}")
         
