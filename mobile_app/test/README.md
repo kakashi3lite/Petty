@@ -21,3 +21,28 @@ void main() {
   });
 }
 ```
+
+## Golden Tests
+
+### Running Golden Tests
+
+To run all golden tests:
+```bash
+flutter test test/goldens/
+```
+
+### Updating Golden Files
+
+When UI changes are expected and golden tests need to be updated:
+```bash
+flutter test --update-goldens
+```
+
+**Important:** Golden tests are deterministic and should produce identical results across different environments for reliable CI testing. Only update golden files when the UI changes are intentional.
+
+### Golden Test Structure
+
+- `test/goldens/glass_container_golden_test.dart` - Tests GlassContainer widget variations
+- `test/goldens/dashboard_story_golden_test.dart` - Tests dashboard story list scenarios
+
+Golden files will be generated in `test/goldens/` directory with `.png` extensions matching the test names.
