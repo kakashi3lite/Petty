@@ -12,6 +12,7 @@
 .history
 __pycache__/
 .venv/
+test_venv/
 dist/
 build/
 *.egg-info/
