@@ -1,0 +1,100 @@
+name: Coverage Report
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  PYTHON_VERSION: '3.11'
+  FLUTTER_VERSION: '3.13.x'
+
+permissions:
+  contents: read
+
+jobs:
+  python-coverage:
+    name: Python Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,security,observability]"
+
+      - name: Run Python tests with coverage
+        run: |
+          pytest tests/ --cov=src --cov-report=xml --cov-report=html
+
+      - name: Upload Python coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          file: ./coverage.xml
+          flags: python
+          name: python-coverage
+          fail_ci_if_error: false
+
+      - name: Upload Python coverage artifacts
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: python-coverage
+          path: |
+            coverage.xml
+            htmlcov/
+
+  flutter-coverage:
+    name: Flutter Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Get Flutter dependencies
+        working-directory: mobile_app
+        run: flutter pub get
+
+      - name: Run Flutter tests with coverage
+        working-directory: mobile_app
+        run: flutter test --coverage
+
+      - name: Upload Flutter coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          file: ./mobile_app/coverage/lcov.info
+          flags: flutter
+          name: flutter-coverage
+          fail_ci_if_error: false
+
+      - name: Upload Flutter coverage artifacts
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: flutter-coverage
+          path: mobile_app/coverage/
