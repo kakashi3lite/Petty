@@ -4,28 +4,36 @@ Implements OWASP LLM Top 10 mitigations for IoT data ingestion.
 """
 
 import json
-import os
 import logging
-import time
-from typing import Dict, Any, Optional
-from datetime import datetime, timezone
-import boto3
-from botocore.exceptions import ClientError, BotoCoreError
+import os
 
 # Import security and observability modules
 import sys
+import time
+from typing import Any
+
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # >>> POWDTOOLS_REFACTOR_START >>>
-from common.observability.powertools import logger, tracer, metrics, MetricUnit  # centralized
 from aws_lambda_powertools.utilities.typing import LambdaContext  # type: ignore
+
+from common.observability.powertools import (  # centralized
+    MetricUnit,
+    logger,
+    metrics,
+    tracer,
+)
+
 # <<< POWDTOOLS_REFACTOR_END <<<
 
 try:
-    from common.security.input_validators import validate_collar_data, InputValidator
-    from common.security.output_schemas import secure_response_wrapper
-    from common.security.rate_limiter import rate_limit_decorator, RateLimitExceeded
     from common.observability.logger import get_logger
+    from common.security.input_validators import InputValidator, validate_collar_data
+    from common.security.output_schemas import secure_response_wrapper
+    from common.security.rate_limiter import RateLimitExceeded, rate_limit_decorator
     SECURITY_MODULES_AVAILABLE = True
 except ImportError:
     SECURITY_MODULES_AVAILABLE = False
@@ -50,12 +58,12 @@ timestream_client = session.client(
 
 class DataProcessor:
     """Secure data processor for collar telemetry"""
-    
+
     def __init__(self):
         self.validator = InputValidator() if SECURITY_MODULES_AVAILABLE else None
         self.logger = logger
-        
-    def process_telemetry(self, event_body: Dict[str, Any], request_id: str) -> Dict[str, Any]:
+
+    def process_telemetry(self, event_body: dict[str, Any], request_id: str) -> dict[str, Any]:
         """
         Process and validate collar telemetry data
         
@@ -67,7 +75,7 @@ class DataProcessor:
             Processing result with success/error status
         """
         start_time = time.time()
-        
+
         try:
             # Input validation and sanitization
             if self.validator:
@@ -76,15 +84,15 @@ class DataProcessor:
             else:
                 # Fallback validation
                 clean_data = self._fallback_validate(event_body)
-            
+
             # Store in Timestream
             timestream_result = self._write_to_timestream(clean_data, request_id)
-            
+
             # Record metrics
             processing_time = time.time() - start_time
             metrics.add_metric(name="ProcessingTime", unit=MetricUnit.Seconds, value=processing_time)
             metrics.add_metric(name="SuccessfulIngestion", unit=MetricUnit.Count, value=1)
-            
+
             self.logger.info(
                 "Telemetry data processed successfully",
                 collar_id=clean_data.get("collar_id"),
@@ -92,7 +100,7 @@ class DataProcessor:
                 request_id=request_id,
                 timestream_record_id=timestream_result.get("RecordId")
             )
-            
+
             if SECURITY_MODULES_AVAILABLE:
                 return secure_response_wrapper(
                     success=True,
@@ -101,11 +109,11 @@ class DataProcessor:
                 )
             else:
                 return {"statusCode": 200, "body": json.dumps({"ok": True})}
-                
+
         except Exception as e:
             # Record failure metrics
             metrics.add_metric(name="FailedIngestion", unit=MetricUnit.Count, value=1)
-            
+
             self.logger.error(
                 "Telemetry processing failed",
                 error=str(e),
@@ -113,7 +121,7 @@ class DataProcessor:
                 request_id=request_id,
                 collar_id=event_body.get("collar_id") if isinstance(event_body, dict) else "unknown"
             )
-            
+
             if SECURITY_MODULES_AVAILABLE:
                 return secure_response_wrapper(
                     success=False,
@@ -123,27 +131,27 @@ class DataProcessor:
                 )
             else:
                 return {"statusCode": 400, "body": json.dumps({"error": str(e)})}
-    
-    def _fallback_validate(self, data: Dict[str, Any]) -> Dict[str, Any]:
+
+    def _fallback_validate(self, data: dict[str, Any]) -> dict[str, Any]:
         """Fallback validation when security modules unavailable"""
         required_fields = ["collar_id", "timestamp", "heart_rate", "activity_level", "location"]
-        
+
         for field in required_fields:
             if field not in data:
                 raise ValueError(f"Missing required field: {field}")
-        
+
         # Basic type and range validation
         hr = data["heart_rate"]
         if not isinstance(hr, (int, float)) or not (30 <= hr <= 300):
             raise ValueError(f"Invalid heart rate: {hr}")
-        
+
         activity = data["activity_level"]
         if not isinstance(activity, int) or not (0 <= activity <= 2):
             raise ValueError(f"Invalid activity level: {activity}")
-        
+
         return data
-    
-    def _write_to_timestream(self, data: Dict[str, Any], request_id: str) -> Dict[str, Any]:
+
+    def _write_to_timestream(self, data: dict[str, Any], request_id: str) -> dict[str, Any]:
         """
         Write validated data to AWS Timestream
         
@@ -157,13 +165,13 @@ class DataProcessor:
         try:
             # Prepare Timestream record
             current_time = str(int(time.time() * 1000))  # Milliseconds since epoch
-            
+
             # Extract location data safely
             location = data.get("location", {})
             coordinates = location.get("coordinates", [0, 0])
             longitude = coordinates[0] if len(coordinates) > 0 else 0
             latitude = coordinates[1] if len(coordinates) > 1 else 0
-            
+
             record = {
                 'Time': current_time,
                 'TimeUnit': 'MILLISECONDS',
@@ -204,14 +212,14 @@ class DataProcessor:
                     }
                 ]
             }
-            
+
             # Write to Timestream with retry logic
             response = timestream_client.write_records(
                 DatabaseName=TIMESTREAM_DATABASE,
                 TableName=TIMESTREAM_TABLE,
                 Records=[record]
             )
-            
+
             self.logger.debug(
                 "Data written to Timestream",
                 database=TIMESTREAM_DATABASE,
@@ -219,9 +227,9 @@ class DataProcessor:
                 collar_id=data["collar_id"],
                 request_id=request_id
             )
-            
+
             return response
-            
+
         except (ClientError, BotoCoreError) as e:
             self.logger.error(
                 "Timestream write failed",
@@ -238,7 +246,7 @@ processor = DataProcessor()
 @tracer.capture_lambda_handler  # tracing
 @logger.inject_lambda_context(log_event=True)  # structured logs with event
 @rate_limit_decorator("ingest", tokens=1, key_func=lambda event, context: (event.get("body", {}) or {}).get("collar_id", "unknown")) if SECURITY_MODULES_AVAILABLE else (lambda f: f)
-def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, Any]:
+def lambda_handler(event: dict[str, Any], context: LambdaContext) -> dict[str, Any]:
     """
     AWS Lambda handler for collar data ingestion
     
@@ -269,7 +277,7 @@ def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, A
                     )
                 else:
                     return {"statusCode": 400, "body": json.dumps({"error": "Invalid JSON"})}
-        
+
         if not isinstance(body, dict):
             logger.error("Request body is not a dictionary", request_id=request_id)
             if SECURITY_MODULES_AVAILABLE:
@@ -281,13 +289,13 @@ def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, A
                 )
             else:
                 return {"statusCode": 400, "body": json.dumps({"error": "Invalid format"})}
-        
+
         logger.append_keys(collar_id=body.get("collar_id"))
         logger.info("Processing collar data ingestion", request_id=request_id)
-        
+
         # Process the telemetry data
         result = processor.process_telemetry(body, request_id)
-        
+
         # Add CORS headers for browser compatibility
         if isinstance(result, dict) and "headers" not in result:
             result["headers"] = {
@@ -296,9 +304,9 @@ def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, A
                 "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
                 "Access-Control-Allow-Methods": "POST,OPTIONS"
             }
-        
+
         return result
-        
+
     except RateLimitExceeded as e:  # type: ignore
         logger.warning("Rate limit exceeded", error=str(e), request_id=request_id)
         return {
@@ -306,7 +314,7 @@ def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, A
             "headers": {"Content-Type": "application/json"},
             "body": json.dumps({"error": "Rate limit exceeded", "request_id": request_id})
         }
-    
+
     except Exception as e:  # pylint: disable=broad-except
         logger.exception("Unhandled error in lambda handler", error=str(e), request_id=request_id)
         return {

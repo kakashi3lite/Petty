@@ -20,10 +20,11 @@ Falls back gracefully if aws_lambda_powertools is unavailable (e.g., local minim
 from __future__ import annotations
 
 import os
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 try:
-    from aws_lambda_powertools import Logger, Tracer, Metrics
+    from aws_lambda_powertools import Logger, Metrics, Tracer
     from aws_lambda_powertools.metrics import MetricUnit
 except ImportError:  # pragma: no cover - executed only when dependency missing
     Logger = Tracer = Metrics = None  # type: ignore
@@ -56,4 +57,4 @@ else:  # Fallback lightweight shims
     tracer.capture_lambda_handler = lambda func: func  # type: ignore
     logger.inject_lambda_context = lambda **_kw: (lambda f: f)  # type: ignore
 
-__all__ = ["logger", "tracer", "metrics", "MetricUnit"]
+__all__ = ["MetricUnit", "logger", "metrics", "tracer"]

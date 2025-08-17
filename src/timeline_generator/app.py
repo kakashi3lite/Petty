@@ -1,13 +1,18 @@
-import json, os, logging, random, datetime
-from typing import List, Dict, Any
+import datetime
+import json
+import random
+from typing import Any
+
 from behavioral_interpreter.interpreter import BehavioralInterpreter
+
 # >>> POWDTOOLS_REFACTOR_START >>>
-from common.observability.powertools import logger, tracer, metrics, MetricUnit
+from common.observability.powertools import MetricUnit, logger, metrics, tracer
+
 # <<< POWDTOOLS_REFACTOR_END <<<
 
 # remove basic logger config, powertools handles level via env
 
-def _stub_last_24h(collar_id: str) -> List[Dict[str, Any]]:
+def _stub_last_24h(collar_id: str) -> list[dict[str, Any]]:
     # Simulated 24h of points every 10 minutes
     base = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
     data = []

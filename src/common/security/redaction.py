@@ -3,7 +3,7 @@ Data redaction utilities for privacy compliance
 """
 
 import re
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 # Common patterns for redaction
 EMAIL_PATTERN = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
@@ -31,20 +31,20 @@ def redact_pii(text: str) -> str:
     """Comprehensive PII redaction"""
     if not isinstance(text, str):
         return text
-    
+
     result = text
     result = redact_email(result)
     result = redact_phone(result)
     result = redact_ssn(result)
     result = redact_credit_card(result)
-    
+
     return result
 
-def redact_dict(data: Dict[str, Any], keys_to_redact: Optional[List[str]] = None) -> Dict[str, Any]:
+def redact_dict(data: dict[str, Any], keys_to_redact: list[str] | None = None) -> dict[str, Any]:
     """Redact specified keys from dictionary"""
     if keys_to_redact is None:
         keys_to_redact = ['email', 'phone', 'ssn', 'credit_card', 'password', 'token']
-    
+
     result = {}
     for key, value in data.items():
         if key.lower() in [k.lower() for k in keys_to_redact]:
@@ -54,25 +54,25 @@ def redact_dict(data: Dict[str, Any], keys_to_redact: Optional[List[str]] = None
         elif isinstance(value, dict):
             result[key] = redact_dict(value, keys_to_redact)
         elif isinstance(value, list):
-            result[key] = [redact_dict(item, keys_to_redact) if isinstance(item, dict) 
-                          else redact_pii(item) if isinstance(item, str) 
+            result[key] = [redact_dict(item, keys_to_redact) if isinstance(item, dict)
+                          else redact_pii(item) if isinstance(item, str)
                           else item for item in value]
         else:
             result[key] = value
-    
+
     return result
 
 class DataRedactor:
     """Production-grade data redaction utility"""
-    
-    def __init__(self, keys_to_redact: Optional[List[str]] = None):
+
+    def __init__(self, keys_to_redact: list[str] | None = None):
         self.keys_to_redact = keys_to_redact or ['email', 'phone', 'ssn', 'credit_card', 'password', 'token']
-    
+
     def redact_text(self, text: str) -> str:
         """Redact PII from text"""
         return redact_pii(text)
-    
-    def redact_data(self, data: Union[str, Dict[str, Any], List[Any]]) -> Union[str, Dict[str, Any], List[Any]]:
+
+    def redact_data(self, data: str | dict[str, Any] | list[Any]) -> str | dict[str, Any] | list[Any]:
         """Redact PII from various data types"""
         if isinstance(data, str):
             return self.redact_text(data)
@@ -83,9 +83,9 @@ class DataRedactor:
         else:
             return data
 
-def safe_log(data: Union[str, Dict[str, Any], List[Any]], redactor: Optional[DataRedactor] = None) -> Union[str, Dict[str, Any], List[Any]]:
+def safe_log(data: str | dict[str, Any] | list[Any], redactor: DataRedactor | None = None) -> str | dict[str, Any] | list[Any]:
     """Safely prepare data for logging by redacting PII"""
     if redactor is None:
         redactor = DataRedactor()
-    
+
     return redactor.redact_data(data)
