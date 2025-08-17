@@ -26,6 +26,11 @@ def lambda_handler(event, context):  # type: ignore
 
         # Optional raw segment if provided (placeholder for future retrieval logic)
         segment = body.get("segment")
+        # Guard overly large segment ( > 64KB ) to avoid oversized objects
+        if isinstance(segment, dict):
+            seg_len = len(json.dumps(segment))
+            if seg_len > 64 * 1024:
+                return {"statusCode": 413, "body": json.dumps({"error": "segment too large"})}
         doc: Dict[str, Any] = {
             "event_id": event_id,
             "collar_id": collar_id,
@@ -37,7 +42,7 @@ def lambda_handler(event, context):  # type: ignore
 
         key = _build_key(collar_id, event_id)
         put_json(FEEDBACK_BUCKET, key, doc)
-        logger.info("stored feedback %s -> s3://%s/%s", event_id, FEEDBACK_BUCKET, key)
+        logger.info("stored feedback", extra={"event_id": event_id, "bucket": FEEDBACK_BUCKET, "key": key})
         return {"statusCode": 200, "body": json.dumps({"ok": True, "key": key})}
     except Exception as e:  # pragma: no cover
         logger.exception("feedback error")

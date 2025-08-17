@@ -5,6 +5,19 @@ from moto import mock_aws
 import boto3
 from src.feedback_handler import app as feedback_app
 
+
+def test_feedback_invalid_payload():
+    resp = feedback_app.lambda_handler({"body": json.dumps({"event_id": "e", "user_feedback": "bad"})}, None)
+    assert resp["statusCode"] == 400
+
+
+def test_feedback_segment_too_large(monkeypatch):
+    # Build a segment just over 64KB
+    large = {"x": "a" * (64 * 1024 + 1)}
+    event = {"body": json.dumps({"event_id": "e1", "collar_id": "c1", "user_feedback": "correct", "segment": large})}
+    resp = feedback_app.lambda_handler(event, None)
+    assert resp["statusCode"] == 413
+
 @mock_aws
 def test_feedback_persist_s3(monkeypatch):
     s3 = boto3.client("s3", region_name="us-east-1")
