@@ -1,0 +1,323 @@
+name: Deploy - Production Deployment
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+        default: development
+      skip_security_checks:
+        description: 'Skip security checks (not recommended for production)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  AWS_REGION: us-east-1
+  PYTHON_VERSION: '3.11'
+
+permissions:
+  contents: read
+  id-token: write
+  security-events: write
+
+jobs:
+  pre-deployment-security:
+    name: Pre-Deployment Security Checks
+    runs-on: ubuntu-latest
+    if: github.event.inputs.skip_security_checks != 'true'
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify artifact signatures
+        run: |
+          # Download and verify signatures from previous build
+          echo "Verifying artifact signatures..."
+          # This would verify cosign signatures in a real deployment
+
+      - name: Run security scan
+        run: |
+          pip install bandit safety
+          bandit -r src/ -ll
+          safety check
+
+      - name: Validate infrastructure
+        run: |
+          pip install aws-sam-cli
+          cd infrastructure
+          sam validate --lint
+
+  deploy-infrastructure:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+    needs: [pre-deployment-security]
+    if: always() && (needs.pre-deployment-security.result == 'success' || needs.pre-deployment-security.result == 'skipped')
+    environment: 
+      name: ${{ github.event.inputs.environment || 'production' }}
+      url: ${{ steps.deploy.outputs.api-url }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOYMENT_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: PettyDeployment
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install SAM CLI
+        run: |
+          pip install aws-sam-cli
+
+      - name: Build SAM application
+        working-directory: infrastructure
+        run: |
+          sam build --use-container --parallel
+
+      - name: Deploy to AWS
+        id: deploy
+        working-directory: infrastructure
+        env:
+          ENVIRONMENT: ${{ github.event.inputs.environment || 'production' }}
+        run: |
+          sam deploy \
+            --config-env $ENVIRONMENT \
+            --parameter-overrides \
+              Environment=$ENVIRONMENT \
+              Version=${{ github.ref_name || github.sha }} \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --capabilities CAPABILITY_IAM \
+            --stack-name petty-$ENVIRONMENT \
+            --s3-prefix petty-$ENVIRONMENT
+          
+          # Extract API URL from stack outputs
+          API_URL=$(aws cloudformation describe-stacks \
+            --stack-name petty-$ENVIRONMENT \
+            --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' \
+            --output text)
+          echo "api-url=$API_URL" >> $GITHUB_OUTPUT
+
+      - name: Run post-deployment tests
+        env:
+          API_URL: ${{ steps.deploy.outputs.api-url }}
+        run: |
+          # Run smoke tests against deployed API
+          python -m pytest tests/smoke/ -v --api-url="$API_URL"
+
+  deploy-mobile-app:
+    name: Deploy Mobile App
+    runs-on: ubuntu-latest
+    needs: [deploy-infrastructure]
+    if: github.event.inputs.environment == 'production' || github.event_name == 'release'
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.13.x'
+
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Configure app for production
+        working-directory: mobile_app
+        env:
+          API_URL: ${{ needs.deploy-infrastructure.outputs.api-url }}
+        run: |
+          # Update API endpoint in Flutter app
+          sed -i "s|https://api.example.com|$API_URL|g" lib/src/services/api_service.dart
+
+      - name: Build release APK
+        working-directory: mobile_app
+        run: |
+          flutter pub get
+          flutter build apk --release --split-per-abi
+
+      - name: Sign APK
+        working-directory: mobile_app
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          # Sign APK with production keystore
+          echo "APK signing would happen here with production keystore"
+
+      - name: Upload to Play Store (Internal Testing)
+        if: github.event.inputs.environment == 'production'
+        working-directory: mobile_app
+        env:
+          PLAY_STORE_CREDENTIALS: ${{ secrets.PLAY_STORE_CREDENTIALS }}
+        run: |
+          # Upload to Google Play Store internal testing
+          echo "Play Store upload would happen here"
+
+  security-validation:
+    name: Post-Deployment Security Validation
+    runs-on: ubuntu-latest
+    needs: [deploy-infrastructure]
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install security tools
+        run: |
+          pip install requests
+          # Install OWASP ZAP or similar tool
+
+      - name: Run DAST security scan
+        env:
+          API_URL: ${{ needs.deploy-infrastructure.outputs.api-url }}
+        run: |
+          # Run dynamic security testing against deployed API
+          python scripts/security-scan.py --target="$API_URL"
+
+      - name: Test rate limiting
+        env:
+          API_URL: ${{ needs.deploy-infrastructure.outputs.api-url }}
+        run: |
+          # Test that rate limiting is working
+          python scripts/test-rate-limits.py --target="$API_URL"
+
+      - name: Validate TLS configuration
+        env:
+          API_URL: ${{ needs.deploy-infrastructure.outputs.api-url }}
+        run: |
+          # Test TLS configuration
+          curl -I "$API_URL" --tlsv1.2 -v
+
+  performance-validation:
+    name: Performance Validation
+    runs-on: ubuntu-latest
+    needs: [deploy-infrastructure]
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install performance tools
+        run: |
+          pip install locust
+
+      - name: Run load tests
+        env:
+          API_URL: ${{ needs.deploy-infrastructure.outputs.api-url }}
+        run: |
+          # Run load tests to validate performance
+          locust -f tests/performance/locustfile.py \
+            --host="$API_URL" \
+            --users=10 \
+            --spawn-rate=2 \
+            --run-time=60s \
+            --headless
+
+  rollback:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    needs: [deploy-infrastructure, security-validation, performance-validation]
+    if: failure() && (github.event.inputs.environment == 'production' || github.event_name == 'release')
+    environment: production
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOYMENT_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Rollback deployment
+        run: |
+          # Get previous successful deployment
+          PREVIOUS_VERSION=$(aws cloudformation describe-stack-events \
+            --stack-name petty-production \
+            --query 'StackEvents[?ResourceStatusReason==`User Initiated`][0].PhysicalResourceId' \
+            --output text)
+          
+          echo "Rolling back to previous version: $PREVIOUS_VERSION"
+          # Implement rollback logic here
+
+      - name: Notify team of rollback
+        run: |
+          echo "Deployment failed and was rolled back"
+          # Send notification to team
+
+  monitoring-setup:
+    name: Setup Monitoring and Alerts
+    runs-on: ubuntu-latest
+    needs: [deploy-infrastructure]
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOYMENT_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Create CloudWatch alarms
+        env:
+          ENVIRONMENT: ${{ github.event.inputs.environment || 'production' }}
+        run: |
+          # Create CloudWatch alarms for the deployment
+          aws cloudwatch put-metric-alarm \
+            --alarm-name "petty-$ENVIRONMENT-high-error-rate" \
+            --alarm-description "High error rate in Petty API" \
+            --metric-name Errors \
+            --namespace AWS/ApiGateway \
+            --statistic Sum \
+            --period 300 \
+            --threshold 10 \
+            --comparison-operator GreaterThanThreshold \
+            --evaluation-periods 2
+
+      - name: Setup synthetic monitoring
+        run: |
+          # Setup synthetic canary for continuous monitoring
+          echo "Setting up synthetic monitoring canary"

@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Petty serverless stack
+
+Globals:
+  Function:
+    Timeout: 15
+    Runtime: python3.11
+
+Resources:
+  TimestreamDatabase:
+    Type: AWS::Timestream::Database
+    Properties: { DatabaseName: PettyDB }
+
+  TimestreamTable:
+    Type: AWS::Timestream::Table
+    Properties:
+      DatabaseName: !Ref TimestreamDatabase
+      TableName: CollarMetrics
+      RetentionProperties:
+        MemoryStoreRetentionPeriodInHours: 24
+        MagneticStoreRetentionPeriodInDays: 30
+
+  FeedbackDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: petty-feedback-data
+
+  DataProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: PettyDataProcessor
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - timestream:WriteRecords
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  DataProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/data_processor/
+      Handler: app.lambda_handler
+      Role: !GetAtt DataProcessorRole.Arn
+      Environment:
+        Variables:
+          TIMESTREAM_DB: !Ref TimestreamDatabase
+          TIMESTREAM_TABLE: !Ref TimestreamTable
+      Events:
+        Ingest:
+          Type: HttpApi
+          Properties:
+            Path: /ingest
+            Method: POST
+        PetPlan:
+          Type: HttpApi
+          Properties:
+            Path: /pet-plan
+            Method: GET
+        Realtime:
+          Type: HttpApi
+          Properties:
+            Path: /realtime
+            Method: GET
+
+  BehavioralRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: PettyBehavioral
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - timestream:Select
+                  - timestream:DescribeTable
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  TimelineGeneratorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/timeline_generator/
+      Handler: app.lambda_handler
+      Role: !GetAtt BehavioralRole.Arn
+      Environment:
+        Variables:
+          TIMESTREAM_DB: !Ref TimestreamDatabase
+          TIMESTREAM_TABLE: !Ref TimestreamTable
+      Events:
+        Timeline:
+          Type: HttpApi
+          Properties:
+            Path: /pet-timeline
+            Method: GET
+
+  FeedbackHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/feedback_handler/
+      Handler: app.lambda_handler
+      Role: !GetAtt BehavioralRole.Arn
+      Environment:
+        Variables:
+          FEEDBACK_BUCKET: !Ref FeedbackDataBucket
+          TIMESTREAM_DB: !Ref TimestreamDatabase
+          TIMESTREAM_TABLE: !Ref TimestreamTable
+      Events:
+        Feedback:
+          Type: HttpApi
+          Properties:
+            Path: /submit-feedback
+            Method: POST
