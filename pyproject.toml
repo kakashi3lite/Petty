@@ -196,6 +196,7 @@ markers = [
     "integration: marks tests as integration tests",
     "security: marks tests as security tests",
     "property: marks tests as property-based tests",
+    "ai_security: marks tests as AI security tests",
 ]
 
 [tool.coverage.run]
@@ -216,8 +217,8 @@ exclude_lines = [
     "raise NotImplementedError",
     "if 0:",
     "if __name__ == .__main__.:",
-    "class .*\bProtocol\):",
-    "@(abc\.)?abstractmethod",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
 ]
 
 [tool.bandit]
