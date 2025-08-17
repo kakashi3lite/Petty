@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../../services/api_service.dart';
 import '../../../widgets/glass_container.dart';
 
@@ -44,8 +45,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Real‑Time Dashboard',
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(color: Colors.white)),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Real‑Time Dashboard',
+                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(color: Colors.white)),
+                      IconButton(
+                        icon: const Icon(Icons.help_outline, color: Colors.white, size: 28),
+                        onPressed: () => context.go('/help'),
+                        tooltip: 'Help & FAQ',
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 16),
                   Expanded(
                     child: asyncData.when(
