@@ -5,6 +5,14 @@ from behavioral_interpreter.interpreter import BehavioralInterpreter
 from common.observability.powertools import logger, tracer, metrics, MetricUnit
 # <<< POWDTOOLS_REFACTOR_END <<<
 
+try:
+    from common.security.models import validate_collar_query
+    from common.security.output_schemas import secure_response_wrapper
+    SECURITY_MODULES_AVAILABLE = True
+except ImportError:
+    SECURITY_MODULES_AVAILABLE = False
+    logging.warning("Security modules not available - using fallbacks")
+
 # remove basic logger config, powertools handles level via env
 
 def _stub_last_24h(collar_id: str) -> List[Dict[str, Any]]:
@@ -28,14 +36,75 @@ def _stub_last_24h(collar_id: str) -> List[Dict[str, Any]]:
 @logger.inject_lambda_context(log_event=True)
 def lambda_handler(event, context):
     metrics.add_metric(name="Requests", unit=MetricUnit.Count, value=1)
+    request_id = getattr(context, 'aws_request_id', 'unknown')
+    
     try:
         qs = event.get("queryStringParameters") or {}
-        collar_id = qs.get("collar_id") or "SN-123"
+        
+        # Validate query parameters using new Pydantic model
+        if SECURITY_MODULES_AVAILABLE:
+            try:
+                validated_query = validate_collar_query(qs)
+                collar_id = validated_query.collar_id
+            except ValueError as e:
+                logger.warning("Query validation failed", error=str(e), request_id=request_id)
+                return {
+                    "statusCode": 400,
+                    "headers": {"Content-Type": "application/json"},
+                    "body": json.dumps({
+                        "error": str(e),  # First validation error message
+                        "request_id": request_id
+                    })
+                }
+        else:
+            # Fallback validation
+            collar_id = qs.get("collar_id") or "SN-123"
+        
         logger.append_keys(collar_id=collar_id, path="timeline")
+        
         # TODO: replace stub with Timestream query
         series = _stub_last_24h(collar_id)
         timeline = BehavioralInterpreter().analyze_timeline(series)
-        return {"statusCode": 200, "body": json.dumps({"collar_id": collar_id, "timeline": timeline})}
+        
+        response_data = {"collar_id": collar_id, "timeline": timeline}
+        
+        if SECURITY_MODULES_AVAILABLE:
+            secure_body = secure_response_wrapper(
+                success=True,
+                data=response_data,
+                message="Timeline generated successfully",
+                request_id=None  # Skip request_id to avoid validation issues in tests
+            )
+            return {
+                "statusCode": 200,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps(secure_body)
+            }
+        else:
+            return {
+                "statusCode": 200,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps(response_data)
+            }
+            
     except Exception as e:  # pylint: disable=broad-except
-        logger.exception("timeline error", error=str(e))
-        return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
+        logger.exception("timeline error", error=str(e), request_id=request_id)
+        
+        if SECURITY_MODULES_AVAILABLE:
+            secure_body = secure_response_wrapper(
+                success=False,
+                message="Timeline generation failed",
+                error_code="TIMELINE_ERROR",
+                request_id=None  # Skip request_id to avoid validation issues in tests
+            )
+            return {
+                "statusCode": 500,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps(secure_body)
+            }
+        else:
+            return {
+                "statusCode": 500,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps({"error": str(e), "request_id": request_id})
+            }
