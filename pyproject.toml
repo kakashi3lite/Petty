@@ -179,6 +179,13 @@ minversion = "7.0"
 addopts = [
     "--strict-markers",
     "--strict-config",
+    "-p no:randomly",
+    "-p no:xdist",
+    "-p no:hypothesis",
+    "-p no:benchmark",
+    "-p no:timeout",
+    "-p no:rerunfailures",
+    "-p no:mock",
 ]
 testpaths = ["tests"]
 filterwarnings = [
