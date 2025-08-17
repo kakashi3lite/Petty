@@ -5,10 +5,33 @@ class APIService {
   APIService({required this.baseUrl});
   final String baseUrl;
 
-  Future<Map<String, dynamic>> getRealTimeData(String collarId) async {
-    final r = await http.get(Uri.parse('$baseUrl/realtime?collar_id=$collarId'));
+  Future<Map<String, dynamic>> getRealTimeData(String collarId, {String? etag}) async {
+    final headers = <String, String>{'Accept': 'application/json'};
+    if (etag != null) {
+      headers['If-None-Match'] = etag;
+    }
+    
+    final r = await http.get(
+      Uri.parse('$baseUrl/realtime?collar_id=$collarId'),
+      headers: headers,
+    );
+    
+    if (r.statusCode == 304) {
+      // Not Modified - return special indicator
+      return {'__not_modified': true, '__etag': etag};
+    }
+    
     if (r.statusCode >= 400) throw Exception('Realtime error: ${r.statusCode}');
-    return json.decode(r.body) as Map<String, dynamic>;
+    
+    final data = json.decode(r.body) as Map<String, dynamic>;
+    
+    // Include ETag in response if present
+    final responseEtag = r.headers['etag'];
+    if (responseEtag != null) {
+      data['__etag'] = responseEtag;
+    }
+    
+    return data;
   }
 
   Future<Map<String, dynamic>> getPetPlan(String collarId) async {
