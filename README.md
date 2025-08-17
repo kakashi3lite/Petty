@@ -1,39 +1,40 @@
 # Petty 🐾
 
-Minimal. Opinionated. Treat-driven.
+Minimal. Opinionated. Treat‑driven.
 
 ```text
 UEVUVFk6IEFJICsgYmVoYXZpb3IgK2NhcmUgKyBwcml2YWN5LWJ5LWRlc2lnbiArIG9ic2VydmFiaWxpdHk=
 ```
-
-Base64 TL;DR (decode it): Petty: AI + behavior + care + privacy-by-design + observability.
+Decode me later; caffeine first.
 
 ## Badges
 
 [![CI](https://github.com/kakashi3lite/Petty/actions/workflows/ci.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml)
-[![Security](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml)
+[![Security Tasks](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml)
 
-> Extended docs: [Consumer Overview](docs/CONSUMER_OVERVIEW.md) • [Mobile UI & Adaptive Polling](docs/MOBILE_UI_ADAPTIVE_POLLING.md)
+Extended docs live off‑page: [Consumer Overview](docs/CONSUMER_OVERVIEW.md) • [Mobile UI Notes](docs/MOBILE_UI_ADAPTIVE_POLLING.md)
 
-## Core Features
+## What Actually Exists (Today)
 
-* Behavior timeline + rules engine (guardrails on)
-* Nutrition + personalization scaffolds
-* Secure feedback storage (S3 + SSE)
-* Redaction + rate limiting + validator layer
-* Flutter UI (Dashboard / Profile / Tele‑Vet)
+* Behavior timeline fetch + feedback ingestion (S3, SSE‑S3, retries)
+* Lightweight nutrition & plan stubs (replace later with real modeling)
+* Validation + redaction + rate limiting layer around Lambda handlers
+* Flutter screens: Dashboard, Pet Profile, Tele‑Vet (static polling loop for now)
+* Makefile + CI pipeline (lint, tests, coverage to Codecov, CodeQL, security chores)
 
-## 30s Backend Setup
+Not yet (being honest): adaptive polling debounce utility, KMS encryption option, help/FAQ screen, golden tests, telemetry export & sample generator.
+
+## Quickstart: Backend (≈30s)
 
 ```bash
-python -m venv .venv && \
-  source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
 pip install -U pip && pip install -e .
 python tests/validate_system.py
 ```
 
-## 30s Mobile Peek
+## Quickstart: Mobile
 
 ```bash
 cd mobile_app
@@ -41,39 +42,30 @@ flutter pub get
 flutter run
 ```
 
-## Dev Hygiene
+## Dev Loop
 
-`make py.lint` • `make py.test` • `make flutter.analyze` • pre-commit hooks for consistent style.
+make py.lint • make py.test • make flutter.analyze
 
-## Security Snapshot
+## Security Bits
 
-Input validators + output schemas + redaction + rate limiter + crypto utils (stub) + CodeQL + dependency updates.
+Input validators, output schemas, redaction, rate limiter, dependency & static analysis (CodeQL), plus S3 SSE‑S3.
+
+## Contributing
+
+PRs > complaints. Ship tests. Keep secrets out. Trim scope mercilessly.
 
 ## License
 
 MIT — see `LICENSE`.
 
-## Contribute
-
-PRs > complaints. Add tests. Keep it lean. No secret leaks.
-
-## Semantic Versioning
-
-`MAJOR.MINOR.PATCH` — break APIs? bump MAJOR.
-
-## One More Base64 (easter egg)
+## Bonus Base64
 
 ```text
 U2l0LiBTdGF5LiBEZXBsb3kuIEFkdmljZSB5b3VyIHBldCdzIGh1bWFuLg==
 ```
-
-Decode with:
-
-```bash
-echo 'U2l0LiBTdGF5LiBEZXBsb3kuIEFkdmljZSB5b3VyIHBldCdzIGh1bWFuLg==' | base64 -d
-```
+Decode if you must; your pet still wants a walk.
 
 ---
-Strategic docs moved out of the README to stay lean. See the linked extended docs above.
+Future work tracked in issues / PR descriptions. README stays lean.
 
 
