@@ -15,6 +15,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   static const String _collarId = 'SN-123';
   final _service = APIService(baseUrl: _apiBaseUrl);
   final Set<String> _ack = {};
+    DateTime? _lastUpdated;
+
+    @override
+    void dispose() {
+      // Cancel stream provider subscription by invalidating it (Riverpod manages cancellation)
+      super.dispose();
+    }
 
   @override
   Widget build(BuildContext context) {
@@ -45,9 +52,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       data: (data) {
                         final hr = data['heart_rate'] ?? '--';
                         final act = _describeActivity(data['activity_level']);
+                        _lastUpdated = DateTime.now();
                         final loc = _describeLocation(data['location']);
                         return Column(
                           children: [
+                            const SizedBox(height: 8),
+                            if (_lastUpdated != null)
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  'Last updated: ${_lastUpdated!.toLocal().toIso8601String()}',
+                                  style: const TextStyle(fontSize: 12, color: Colors.white70),
+                                ),
+                              ),
+                            const SizedBox(height: 16),
                             GlassContainer(child: _Metric(label: 'Heart Rate', value: '$hr BPM', icon: Icons.favorite)),
                             const SizedBox(height: 12),
                             GlassContainer(child: _Metric(label: 'Activity', value: act, icon: Icons.directions_run)),
@@ -133,9 +151,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   static final _realTimeProvider = StreamProvider<Map<String, dynamic>>((ref) async* {
     final service = APIService(baseUrl: _apiBaseUrl);
+    const pollInterval = Duration(seconds: 15); // still 15s, natural debounce >=12s
     while (true) {
-      try { yield await service.getRealTimeData(_collarId); } catch (e) { yield {"error": e.toString()}; }
-      await Future.delayed(const Duration(seconds: 15));
+      try {
+        final data = await service.getRealTimeData(_collarId);
+        yield data;
+      } catch (e) {
+        yield {"error": e.toString()};
+      }
+      await Future.delayed(pollInterval);
     }
   });
 
