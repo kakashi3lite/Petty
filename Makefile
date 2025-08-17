@@ -83,6 +83,30 @@ flutter.test: ## Run Flutter tests only
 	@echo "$(BLUE)🧪 Flutter tests...$(RESET)"
 	cd $(FLUTTER_PATH) && flutter test
 
+flutter.performance: ## Run Flutter performance tests
+	@echo "$(BLUE)⚡ Flutter performance analysis...$(RESET)"
+	cd $(FLUTTER_PATH) && flutter test --performance-measurement-file=performance.json
+	@echo "$(YELLOW)Checking frame rendering performance...$(RESET)"
+	@if [ -f "$(FLUTTER_PATH)/performance.json" ]; then \
+		echo "$(GREEN)✅ Performance metrics captured$(RESET)"; \
+	else \
+		echo "$(RED)❌ Performance measurement failed$(RESET)"; \
+	fi
+
+flutter.accessibility: ## Run Flutter accessibility tests
+	@echo "$(BLUE)♿ Flutter accessibility checks...$(RESET)"
+	cd $(FLUTTER_PATH) && flutter test --tags=accessibility
+	@echo "$(YELLOW)Running semantic label validation...$(RESET)"
+	cd $(FLUTTER_PATH) && flutter test test/theme_accessibility_test.dart
+
+flutter.ci: ## Run full Flutter CI pipeline
+	@echo "$(BLUE)🏗️ Flutter CI pipeline...$(RESET)"
+	@$(MAKE) flutter.analyze
+	@$(MAKE) flutter.test
+	@$(MAKE) flutter.performance
+	@$(MAKE) flutter.accessibility
+	@echo "$(GREEN)✅ Flutter CI complete!$(RESET)"
+
 security: ## Run security checks
 	@echo "$(BLUE)🔒 Running security checks...$(RESET)"
 	@echo "$(YELLOW)Python security scanning...$(RESET)"
@@ -102,8 +126,8 @@ test: ## Run all tests
 	$(VENV_PATH)/Scripts/pytest tests/ -m "property" -v
 	@echo "$(YELLOW)Integration tests...$(RESET)"
 	$(VENV_PATH)/Scripts/pytest tests/ -m "integration" -v
-	@echo "$(YELLOW)Flutter tests...$(RESET)"
-	cd $(FLUTTER_PATH) && flutter test
+	@echo "$(YELLOW)Flutter CI pipeline...$(RESET)"
+	@$(MAKE) flutter.ci
 	@echo "$(GREEN)✅ All tests passed!$(RESET)"
 
 test-fast: ## Run fast tests only

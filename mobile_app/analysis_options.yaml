@@ -1,0 +1,36 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+  errors:
+    # Treat missing_required_param as an error
+    missing_required_param: error
+    # Treat invalid_annotation_target as an error
+    invalid_annotation_target: error
+
+linter:
+  rules:
+    # Accessibility
+    - use_semantic_names
+    - prefer_const_constructors
+    - prefer_const_declarations
+    - prefer_const_literals_to_create_immutables
+    
+    # Performance
+    - avoid_unnecessary_containers
+    - sized_box_for_whitespace
+    - use_key_in_widget_constructors
+    
+    # Code quality
+    - avoid_print
+    - prefer_single_quotes
+    - sort_constructors_first
+    - sort_unnamed_constructors_first
+    
+    # Documentation
+    - public_member_api_docs
+    
+    # Accessibility specific
+    - avoid_web_libraries_in_flutter
