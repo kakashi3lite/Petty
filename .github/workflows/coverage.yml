@@ -1,0 +1,261 @@
+name: Coverage & Metrics
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run daily at 6 AM UTC to catch drift
+    - cron: '0 6 * * *'
+
+env:
+  PYTHON_VERSION: '3.11'
+
+permissions:
+  contents: write  # To commit coverage badge
+  pull-requests: write  # To comment on PRs
+
+jobs:
+  coverage:
+    name: Generate Coverage & Metrics
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+          disable-sudo: false
+          disable-file-monitoring: false
+      
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for accurate metrics
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,security,observability]"
+          pip install coverage pytest-cov
+      
+      - name: Create coverage config
+        run: |
+          cat > .coveragerc << EOF
+          [run]
+          source = src
+          omit = 
+              */tests/*
+              */migrations/*
+              */__init__.py
+          
+          [report]
+          exclude_lines =
+              pragma: no cover
+              def __repr__
+              raise AssertionError
+              raise NotImplementedError
+              if __name__ == .__main__.:
+          
+          [html]
+          directory = htmlcov
+          
+          [json]
+          output = coverage.json
+          EOF
+      
+      - name: Run Tests with Coverage
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: 1
+        run: |
+          python -m pytest tests/ \
+            --cov=src \
+            --cov-report=html \
+            --cov-report=json \
+            --cov-report=term \
+            --cov-fail-under=75 \
+            --junitxml=test-results.xml
+      
+      - name: Generate Coverage Badge Data
+        run: |
+          # Create metrics directory
+          mkdir -p docs/metrics
+          
+          # Extract coverage percentage from coverage.json
+          python << 'EOF'
+          import json
+          import os
+          
+          # Read coverage data
+          with open('coverage.json') as f:
+              coverage_data = json.load(f)
+          
+          total_coverage = coverage_data['totals']['percent_covered']
+          
+          # Determine badge color based on coverage
+          if total_coverage >= 90:
+              color = "brightgreen"
+          elif total_coverage >= 80:
+              color = "green"
+          elif total_coverage >= 70:
+              color = "yellow"
+          elif total_coverage >= 60:
+              color = "orange"
+          else:
+              color = "red"
+          
+          # Create shield.io badge JSON
+          badge_data = {
+              "schemaVersion": 1,
+              "label": "coverage",
+              "message": f"{total_coverage:.0f}%",
+              "color": color
+          }
+          
+          # Write badge data
+          with open('docs/metrics/coverage.json', 'w') as f:
+              json.dump(badge_data, f, indent=2)
+          
+          # Create metrics summary
+          metrics = {
+              "timestamp": "${{ github.event.head_commit.timestamp }}",
+              "sha": "${{ github.sha }}",
+              "branch": "${{ github.ref_name }}",
+              "coverage": {
+                  "percentage": round(total_coverage, 2),
+                  "lines_covered": coverage_data['totals']['covered_lines'],
+                  "lines_total": coverage_data['totals']['num_statements'],
+                  "missing_lines": coverage_data['totals']['missing_lines']
+              },
+              "tests": {
+                  "total_tests": "extracted_from_junit",  # Will be updated below
+                  "status": "passing"
+              }
+          }
+          
+          with open('docs/metrics/metrics.json', 'w') as f:
+              json.dump(metrics, f, indent=2)
+          
+          print(f"Coverage: {total_coverage:.1f}%")
+          print(f"Badge color: {color}")
+          EOF
+      
+      - name: Extract Test Metrics
+        run: |
+          # Extract test count from JUnit XML
+          python << 'EOF'
+          import json
+          import xml.etree.ElementTree as ET
+          
+          # Parse test results
+          tree = ET.parse('test-results.xml')
+          root = tree.getroot()
+          
+          total_tests = int(root.get('tests', 0))
+          failures = int(root.get('failures', 0))
+          errors = int(root.get('errors', 0))
+          
+          # Update metrics
+          with open('docs/metrics/metrics.json', 'r') as f:
+              metrics = json.load(f)
+          
+          metrics['tests'] = {
+              "total_tests": total_tests,
+              "failures": failures,
+              "errors": errors,
+              "status": "passing" if failures == 0 and errors == 0 else "failing"
+          }
+          
+          with open('docs/metrics/metrics.json', 'w') as f:
+              json.dump(metrics, f, indent=2)
+          
+          print(f"Tests: {total_tests} total, {failures} failures, {errors} errors")
+          EOF
+      
+      - name: Upload Coverage Reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-report
+          path: htmlcov/
+          retention-days: 30
+      
+      - name: Commit Badge Data
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          # Check if there are changes
+          if ! git diff --quiet docs/metrics/; then
+            git add docs/metrics/
+            git commit -m "Update coverage and metrics badges [skip ci]"
+            git push
+          else
+            echo "No metrics changes to commit"
+          fi
+      
+      - name: Comment Coverage on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            
+            // Read coverage data
+            const coverage = JSON.parse(fs.readFileSync('coverage.json', 'utf8'));
+            const metrics = JSON.parse(fs.readFileSync('docs/metrics/metrics.json', 'utf8'));
+            
+            const coveragePercent = coverage.totals.percent_covered.toFixed(1);
+            const coverageBadge = `![Coverage](https://img.shields.io/badge/coverage-${coveragePercent}%25-${coveragePercent >= 80 ? 'green' : coveragePercent >= 70 ? 'yellow' : 'red'})`;
+            
+            const comment = `## 📊 Coverage Report
+            
+            ${coverageBadge}
+            
+            **Coverage:** ${coveragePercent}% (${coverage.totals.covered_lines}/${coverage.totals.num_statements} lines)  
+            **Tests:** ${metrics.tests.total_tests} total, ${metrics.tests.failures} failures, ${metrics.tests.errors} errors
+            
+            <details>
+            <summary>View detailed coverage</summary>
+            
+            | File | Coverage |
+            |------|----------|
+            ${Object.entries(coverage.files).slice(0, 10).map(([file, data]) => 
+              `| ${file.replace('src/', '')} | ${data.summary.percent_covered.toFixed(1)}% |`
+            ).join('\n')}
+            
+            </details>`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+      
+      - name: Fail on Low Coverage
+        run: |
+          python << 'EOF'
+          import json
+          import sys
+          
+          with open('coverage.json') as f:
+              coverage_data = json.load(f)
+          
+          total_coverage = coverage_data['totals']['percent_covered']
+          min_coverage = 75  # Minimum required coverage
+          
+          if total_coverage < min_coverage:
+              print(f"❌ Coverage {total_coverage:.1f}% is below minimum {min_coverage}%")
+              sys.exit(1)
+          else:
+              print(f"✅ Coverage {total_coverage:.1f}% meets minimum requirement")
+          EOF
