@@ -5,7 +5,32 @@ from behavioral_interpreter.interpreter import BehavioralInterpreter
 from common.observability.powertools import logger, tracer, metrics, MetricUnit
 # <<< POWDTOOLS_REFACTOR_END <<<
 
+# Feature flag for using stub data vs Timestream
+USE_STUB_DATA = os.getenv("USE_STUB_DATA", "false").lower() == "true"
+
+# Import Timestream query function if not using stub data
+if not USE_STUB_DATA:
+    try:
+        from common.aws.timestream import query_last_24h
+    except ImportError as e:
+        logger.warning(f"Could not import Timestream query module: {e}. Falling back to stub data.")
+        USE_STUB_DATA = True
+
 # remove basic logger config, powertools handles level via env
+
+def _get_last_24h_data(collar_id: str) -> List[Dict[str, Any]]:
+    """Get last 24h telemetry data - either from Timestream or stub based on feature flag."""
+    if USE_STUB_DATA:
+        logger.info("Using stub data for timeline generation", collar_id=collar_id)
+        return _stub_last_24h(collar_id)
+    else:
+        logger.info("Querying Timestream for last 24h data", collar_id=collar_id)
+        try:
+            return query_last_24h(collar_id)
+        except Exception as e:
+            logger.error("Timestream query failed, falling back to stub data", error=str(e), collar_id=collar_id)
+            metrics.add_metric(name="TimestreamQueryFailures", unit=MetricUnit.Count, value=1)
+            return _stub_last_24h(collar_id)
 
 def _stub_last_24h(collar_id: str) -> List[Dict[str, Any]]:
     # Simulated 24h of points every 10 minutes
@@ -32,8 +57,8 @@ def lambda_handler(event, context):
         qs = event.get("queryStringParameters") or {}
         collar_id = qs.get("collar_id") or "SN-123"
         logger.append_keys(collar_id=collar_id, path="timeline")
-        # TODO: replace stub with Timestream query
-        series = _stub_last_24h(collar_id)
+        # Get telemetry data based on feature flag
+        series = _get_last_24h_data(collar_id)
         timeline = BehavioralInterpreter().analyze_timeline(series)
         return {"statusCode": 200, "body": json.dumps({"collar_id": collar_id, "timeline": timeline})}
     except Exception as e:  # pylint: disable=broad-except
