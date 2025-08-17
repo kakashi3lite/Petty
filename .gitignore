@@ -20,6 +20,9 @@ build/
 .github/copilot-instructions.md
 SECURITY_DIGEST.md
 
+# AWS SAM
+.aws-sam/
+
 # Flutter / Dart
 /bin/cache/
 /bin/internal/bootstrap.bat
