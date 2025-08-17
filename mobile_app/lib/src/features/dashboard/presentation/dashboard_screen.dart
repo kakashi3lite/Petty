@@ -149,7 +149,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return '--';
   }
 
-  static final _realTimeProvider = StreamProvider<Map<String, dynamic>>((ref) async* {
+  static final _realTimeProvider = StreamProvider.autoDispose<Map<String, dynamic>>((ref) async* {
     final service = APIService(baseUrl: _apiBaseUrl);
     const pollInterval = Duration(seconds: 15); // still 15s, natural debounce >=12s
     while (true) {
