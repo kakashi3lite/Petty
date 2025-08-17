@@ -22,6 +22,15 @@ from .output_schemas import (
     validate_behavior_output,
     secure_response_wrapper,
 )
+from .models import (
+    TelemetryIn,
+    LocationPoint,
+    CollarIdQuery,
+    FeedbackIn,
+    validate_telemetry_input,
+    validate_collar_query,
+    validate_feedback_input,
+)
 from .rate_limiter import (
     RateLimiter,
     rate_limit_decorator,
@@ -54,6 +63,13 @@ __all__ = [
     "validate_timeline_output",
     "validate_behavior_output",
     "secure_response_wrapper",
+    "TelemetryIn",
+    "LocationPoint", 
+    "CollarIdQuery",
+    "FeedbackIn",
+    "validate_telemetry_input",
+    "validate_collar_query",
+    "validate_feedback_input",
     "RateLimiter",
     "rate_limit_decorator",
     "CircuitBreaker",

@@ -1,0 +1,4 @@
+# file: /home/runner/work/Petty/Petty/src/common/security/input_validators.py
+# hypothesis_version: 6.138.2
+
+[0.0, 1.0, -180, 180, 200, 300, 1000, '(--|/\\*|\\*/)', 'Alert', 'Anxious Pacing', 'Deep Sleep', 'Drinking', 'Eating', 'Invalid collar data', 'Playing Fetch', 'Point', 'Resting', 'Running', 'Unknown', 'Walking', '[;&|`$()]', '^[A-Z]{2}-\\d{3,6}$', '^evt_[a-f0-9]{8}$', '^usr_[a-f0-9]{8,16}$', 'behavior', 'coordinates', 'location', 'metadata', 'timestamp', 'type']

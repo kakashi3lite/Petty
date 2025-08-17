@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/rich/jupyter.py
+# hypothesis_version: 6.138.2
+
+['&', '&amp;', '&gt;', '&lt;', '<', '>', 'ConsoleRenderable', 'text/html', 'text/plain']
