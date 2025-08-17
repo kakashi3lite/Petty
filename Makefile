@@ -73,7 +73,7 @@ security: ## Run security checks
 test: ## Run all tests
 	@echo "$(BLUE)🧪 Running tests...$(RESET)"
 	@echo "$(YELLOW)Python unit tests...$(RESET)"
-	$(VENV_PATH)/Scripts/pytest tests/ -v --tb=short
+	$(VENV_PATH)/Scripts/pytest tests/ -v --tb=short --cov=src --cov-report=term-missing
 	@echo "$(YELLOW)Property-based tests...$(RESET)"
 	$(VENV_PATH)/Scripts/pytest tests/ -m "property" -v
 	@echo "$(YELLOW)Integration tests...$(RESET)"
@@ -81,6 +81,14 @@ test: ## Run all tests
 	@echo "$(YELLOW)Flutter tests...$(RESET)"
 	cd $(FLUTTER_PATH) && flutter test
 	@echo "$(GREEN)✅ All tests passed!$(RESET)"
+
+test-auth: ## Run authentication tests specifically
+	@echo "$(BLUE)🔐 Running authentication tests...$(RESET)"
+	$(VENV_PATH)/Scripts/pytest tests/security/test_production_auth.py -v
+
+test-security: ## Run security-focused tests
+	@echo "$(BLUE)🛡️ Running security tests...$(RESET)"
+	$(VENV_PATH)/Scripts/pytest tests/security/ -v -m security
 
 test-fast: ## Run fast tests only
 	@echo "$(BLUE)⚡ Running fast tests...$(RESET)"
@@ -190,3 +198,50 @@ env-prod: ## Set up production environment variables
 	@echo "export AWS_PROFILE=prod" > .env.prod
 	@echo "export AWS_REGION=us-east-1" >> .env.prod
 	@echo "export ENVIRONMENT=production" >> .env.prod
+
+# Docker targets
+docker-build: ## Build Docker image
+	@echo "$(BLUE)🐳 Building Docker image...$(RESET)"
+	docker build -t petty:latest --target runtime .
+
+docker-build-dev: ## Build development Docker image
+	@echo "$(BLUE)🐳 Building development Docker image...$(RESET)"
+	docker build -t petty:dev --target development .
+
+docker-build-security: ## Build security scanner image
+	@echo "$(BLUE)🛡️ Building security scanner image...$(RESET)"
+	docker build -t petty:security --target security-scanner .
+
+docker-run: ## Run Docker container
+	@echo "$(BLUE)🐳 Starting Docker container...$(RESET)"
+	docker run -p 8080:8080 --name petty-app petty:latest
+
+docker-compose-up: ## Start full stack with docker-compose
+	@echo "$(BLUE)🐳 Starting full stack...$(RESET)"
+	docker-compose up -d
+
+docker-compose-dev: ## Start development stack
+	@echo "$(BLUE)🐳 Starting development stack...$(RESET)"
+	docker-compose --profile development up -d
+
+docker-compose-down: ## Stop docker-compose stack
+	@echo "$(YELLOW)🐳 Stopping stack...$(RESET)"
+	docker-compose down
+
+docker-logs: ## View container logs
+	docker-compose logs -f petty-api
+
+docker-clean: ## Clean Docker images and containers
+	@echo "$(YELLOW)🧹 Cleaning Docker artifacts...$(RESET)"
+	docker-compose down --volumes --remove-orphans
+	docker system prune -f
+
+# SBOM and Security
+generate-sbom: ## Generate Software Bill of Materials
+	@echo "$(BLUE)📋 Generating SBOM...$(RESET)"
+	$(VENV_PATH)/Scripts/cyclonedx-py --format json --output sbom.json .
+	@echo "$(GREEN)✅ SBOM generated: sbom.json$(RESET)"
+
+scan-vulnerabilities: ## Scan for vulnerabilities
+	@echo "$(BLUE)🔍 Scanning vulnerabilities...$(RESET)"
+	docker run --rm -v $(PWD):/workspace aquasec/trivy fs /workspace

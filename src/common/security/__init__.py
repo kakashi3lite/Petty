@@ -40,8 +40,13 @@ from .crypto_utils import (
 )
 from .auth import (
     AuthManager,
+    ProductionTokenManager,
+    TokenPair,
     verify_jwt_token,
     create_jwt_token,
+    create_token_pair,
+    refresh_token_pair,
+    revoke_refresh_token,
     require_auth,
 )
 
@@ -65,7 +70,12 @@ __all__ = [
     "decrypt_sensitive_data",
     "generate_secure_token",
     "AuthManager",
+    "ProductionTokenManager",
+    "TokenPair",
     "verify_jwt_token",
     "create_jwt_token",
+    "create_token_pair",
+    "refresh_token_pair",
+    "revoke_refresh_token",
     "require_auth",
 ]

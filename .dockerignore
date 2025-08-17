@@ -1,0 +1,92 @@
+# Git and version control
+.git
+.gitignore
+.gitattributes
+.github
+**/.git
+**/.gitignore
+
+# Documentation
+README.md
+CHANGELOG.md
+LICENSE
+docs/
+*.md
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.pytest_cache
+.coverage
+htmlcov/
+.tox
+.nox
+.venv
+venv/
+.env
+.env.*
+env/
+ENV/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+target/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache
+coverage.xml
+*.cover
+.hypothesis
+.coverage
+
+# Local development
+docker-compose.override.yml
+docker-compose.*.yml
+!docker-compose.yml
+*.log
+logs/
+tmp/
+temp/
+
+# Flutter/Dart (if building separately)
+mobile_app/build/
+mobile_app/.dart_tool/
+mobile_app/.packages
+mobile_app/pubspec.lock
+
+# AWS and deployment
+.aws/
+samconfig.toml
+packaged-template.yaml
+
+# Security and secrets
+.secrets.baseline
+*.pem
+*.key
+security-reports/
+
+# Monitoring and observability
+monitoring/
+grafana-data/
+prometheus-data/
+
+# Container-specific ignores
+node_modules/
+Dockerfile*
+.dockerignore

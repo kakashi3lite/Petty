@@ -266,14 +266,83 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
 
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Trivy SBOM scan
+        run: |
+          # Install Trivy
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          
+          # Scan container for vulnerabilities
+          trivy image --format json --output trivy-container.json ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          
+          # Scan filesystem
+          trivy fs --format json --output trivy-fs.json .
+          
+          # Generate security report
+          trivy image --format table ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }} > security-report.txt
+
+      - name: Upload security scan results
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-scans
+          path: |
+            trivy-*.json
+            security-report.txt
+            trivy-results.sarif
+
       - name: Sign container image
         run: |
           cosign sign --yes ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
 
-      - name: Generate SBOM
+      - name: Generate SBOM with Syft
         uses: anchore/sbom-action@v0
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Generate SBOM with Syft (CycloneDX format)
+        run: |
+          # Install Syft
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+          
+          # Generate SBOM for container image
+          syft ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }} -o spdx-json=container-sbom.spdx.json
+          syft ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }} -o cyclonedx-json=container-sbom.cyclonedx.json
+          
+          # Generate SBOM for source code
+          syft dir:. -o spdx-json=source-sbom.spdx.json
+          syft dir:. -o cyclonedx-json=source-sbom.cyclonedx.json
+
+      - name: Sign SBOMs
+        run: |
+          cosign sign-blob --bundle=container-sbom.spdx.json.cosign.bundle container-sbom.spdx.json
+          cosign sign-blob --bundle=container-sbom.cyclonedx.json.cosign.bundle container-sbom.cyclonedx.json
+          cosign sign-blob --bundle=source-sbom.spdx.json.cosign.bundle source-sbom.spdx.json
+          cosign sign-blob --bundle=source-sbom.cyclonedx.json.cosign.bundle source-sbom.cyclonedx.json
+
+      - name: Upload SBOMs as artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: sboms
+          path: |
+            *.sbom.*
+            *.cosign.bundle
+
+      - name: Attest container image SBOM
+        run: |
+          cosign attest --predicate container-sbom.spdx.json --type spdxjson ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
 
   security-scan-artifacts:
     name: Security Scan Artifacts
