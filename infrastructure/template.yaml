@@ -6,6 +6,11 @@ Globals:
   Function:
     Timeout: 15
     Runtime: python3.11
+    # >>> PETTY:COPILOT:BEGIN:SAM-VALIDATION-TIGHTEN
+    # Ensure Globals: Function: Tracing: Active
+    # Keep IAM least-privilege where feasible; retain current logical IDs (no stack replacement)
+    Tracing: Active
+    # <<< PETTY:COPILOT:END:SAM-VALIDATION-TIGHTEN
 
 Resources:
   TimestreamDatabase:
@@ -43,12 +48,19 @@ Resources:
               - Effect: Allow
                 Action:
                   - timestream:WriteRecords
-                Resource: "*"
+                Resource: 
+                  - !Sub "${TimestreamDatabase}"
+                  - !Sub "${TimestreamDatabase}/*"
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
                 Resource: "*"
 
   DataProcessorFunction:
@@ -96,16 +108,24 @@ Resources:
                 Action:
                   - timestream:Select
                   - timestream:DescribeTable
-                Resource: "*"
+                Resource: 
+                  - !Sub "${TimestreamDatabase}"
+                  - !Sub "${TimestreamDatabase}/*"
               - Effect: Allow
                 Action:
                   - s3:PutObject
-                Resource: "*"
+                Resource: 
+                  - !Sub "${FeedbackDataBucket}/*"
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
                 Resource: "*"
 
   TimelineGeneratorFunction:
