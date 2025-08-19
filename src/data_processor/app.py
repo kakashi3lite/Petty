@@ -172,75 +172,62 @@ class DataProcessor:
         Returns:
             Timestream write response
         """
+        # >>> PETTY:COPILOT:BEGIN:TS-WRITE
+        # Validate payload (collar_id, ISO8601 timestamp, heart_rate:int, activity_level:{0,1,2}, GeoJSON Point)
+        # Shape dimensions & measures; call write_records(...)
+        # On validation error -> 400; else -> 200 {ok:true}
+        from common.aws.timestream import write_records, build_timestream_record
+        
         try:
-            # Prepare Timestream record
-            current_time = str(int(time.time() * 1000))  # Milliseconds since epoch
+            # Validate required fields
+            collar_id = data.get("collar_id")
+            timestamp = data.get("timestamp")
+            heart_rate = data.get("heart_rate")
+            activity_level = data.get("activity_level")
+            location = data.get("location")
             
-            # Extract location data safely
-            location = data.get("location", {})
-            coordinates = location.get("coordinates", [0, 0])
-            longitude = coordinates[0] if len(coordinates) > 0 else 0
-            latitude = coordinates[1] if len(coordinates) > 1 else 0
+            if not collar_id:
+                raise ValueError("collar_id is required")
             
-            record = {
-                'Time': current_time,
-                'TimeUnit': 'MILLISECONDS',
-                'Dimensions': [
-                    {
-                        'Name': 'CollarId',
-                        'Value': str(data["collar_id"]),
-                        'DimensionValueType': 'VARCHAR'
-                    },
-                    {
-                        'Name': 'Environment',
-                        'Value': ENVIRONMENT,
-                        'DimensionValueType': 'VARCHAR'
-                    }
-                ],
-                'MeasureName': 'CollarMetrics',
-                'MeasureValueType': 'MULTI',
-                'MeasureValues': [
-                    {
-                        'Name': 'HeartRate',
-                        'Value': str(data["heart_rate"]),
-                        'Type': 'DOUBLE'
-                    },
-                    {
-                        'Name': 'ActivityLevel',
-                        'Value': str(data["activity_level"]),
-                        'Type': 'BIGINT'
-                    },
-                    {
-                        'Name': 'Longitude',
-                        'Value': str(longitude),
-                        'Type': 'DOUBLE'
-                    },
-                    {
-                        'Name': 'Latitude',
-                        'Value': str(latitude),
-                        'Type': 'DOUBLE'
-                    }
-                ]
-            }
+            if not timestamp:
+                raise ValueError("timestamp is required")
+                
+            if heart_rate is None or not isinstance(heart_rate, int):
+                raise ValueError("heart_rate must be an integer")
+                
+            if activity_level is None or activity_level not in {0, 1, 2}:
+                raise ValueError("activity_level must be 0, 1, or 2")
+                
+            if not isinstance(location, dict) or location.get('type') != 'Point':
+                raise ValueError("location must be a GeoJSON Point")
             
-            # Write to Timestream with retry logic
-            response = timestream_client.write_records(
-                DatabaseName=TIMESTREAM_DATABASE,
-                TableName=TIMESTREAM_TABLE,
-                Records=[record]
+            # Build Timestream record using helper
+            record = build_timestream_record(
+                collar_id=collar_id,
+                timestamp=timestamp,
+                heart_rate=heart_rate,
+                activity_level=activity_level,
+                location=location
             )
             
-            self.logger.debug(
-                "Data written to Timestream",
+            # Write to Timestream with retries/backoff
+            response = write_records(
                 database=TIMESTREAM_DATABASE,
                 table=TIMESTREAM_TABLE,
-                collar_id=data["collar_id"],
-                request_id=request_id
+                records=[record]
             )
             
             return response
             
-        except (ClientError, BotoCoreError) as e:
+        except ValueError as e:
+            self.logger.error(
+                "Timestream validation failed",
+                error=str(e),
+                collar_id=data.get("collar_id"),
+                request_id=request_id
+            )
+            raise
+        except Exception as e:
             self.logger.error(
                 "Timestream write failed",
                 error=str(e),
@@ -248,6 +235,8 @@ class DataProcessor:
                 table=TIMESTREAM_TABLE,
                 request_id=request_id
             )
+            raise
+        # <<< PETTY:COPILOT:END:TS-WRITE
             raise Exception(f"Failed to write to Timestream: {e}")
 
 # Global processor instance
