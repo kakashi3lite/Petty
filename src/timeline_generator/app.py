@@ -41,8 +41,26 @@ def lambda_handler(event, context):
         qs = event.get("queryStringParameters") or {}
         collar_id = qs.get("collar_id") or "SN-123"
         logger.info("Processing timeline request", collar_id=collar_id)
-        # TODO: replace stub with Timestream query
-        series = _stub_last_24h(collar_id)
+        
+        # >>> PETTY:COPILOT:BEGIN:TS-QUERY
+        # If USE_STUB_DATA=true -> keep stub; else query last 24h asc and map to DATA_PROTOCOL dict shape
+        # Feed BehavioralInterpreter() and return timeline JSON
+        use_stub_data = os.getenv("USE_STUB_DATA", "true").lower() == "true"
+        
+        if use_stub_data:
+            logger.info("Using stub data for timeline", collar_id=collar_id)
+            series = _stub_last_24h(collar_id)
+        else:
+            logger.info("Querying Timestream for timeline data", collar_id=collar_id)
+            from common.aws.timestream import query_last_24h
+            try:
+                series = query_last_24h(collar_id)
+                logger.info("Retrieved timeline data from Timestream", collar_id=collar_id, record_count=len(series))
+            except Exception as e:
+                logger.error("Failed to query Timestream, falling back to stub", collar_id=collar_id, error=str(e))
+                series = _stub_last_24h(collar_id)
+        # <<< PETTY:COPILOT:END:TS-QUERY
+        
         timeline = BehavioralInterpreter().analyze_timeline(series)
         logger.info("Timeline generated successfully", collar_id=collar_id, event_count=len(timeline))
         return {"statusCode": 200, "body": json.dumps({"collar_id": collar_id, "timeline": timeline})}
