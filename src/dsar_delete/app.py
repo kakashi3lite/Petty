@@ -15,8 +15,8 @@ Features:
 
 import json
 import os
-from datetime import UTC, datetime, timedelta
-from typing import Any
+from datetime import datetime, timezone, timedelta
+from typing import Any, Dict, List, Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -81,7 +81,7 @@ class DSARDataDeleter:
     def delete_user_data(
         self,
         user_id: str,
-        data_types: list[str] = None,
+        data_types: Optional[list[str]] = None,
         deletion_type: str = 'soft',
         retention_policy: str = 'standard'
     ) -> dict[str, Any]:
@@ -100,7 +100,7 @@ class DSARDataDeleter:
 
         deletion_record = {
             'user_id': user_id,
-            'deletion_timestamp': datetime.now(UTC).isoformat(),
+            'deletion_timestamp': datetime.now(timezone.utc).isoformat(),
             'deletion_type': deletion_type,
             'retention_policy': retention_policy,
             'retention_days': retention_days,
@@ -133,7 +133,7 @@ class DSARDataDeleter:
     def _perform_soft_deletion(self, user_id: str, data_types: list[str], retention_days: int) -> dict[str, Any]:
         """Perform soft deletion with retention policy"""
 
-        deletion_date = datetime.now(UTC)
+        deletion_date = datetime.now(timezone.utc)
         final_deletion_date = deletion_date + timedelta(days=retention_days)
 
         soft_deletion_result = {
@@ -167,7 +167,7 @@ class DSARDataDeleter:
 
         hard_deletion_result = {
             'method': 'hard_deletion',
-            'deleted_at': datetime.now(UTC).isoformat(),
+            'deleted_at': datetime.now(timezone.utc).isoformat(),
             'records_deleted': {}
         }
 
@@ -380,7 +380,7 @@ class DSARDataDeleter:
 def create_audit_record(request_data: dict[str, Any], action: str, result: str = 'success') -> None:
     """Create audit record for deletion operations"""
     audit_record = {
-        'timestamp': datetime.now(UTC).isoformat(),
+        'timestamp': datetime.now(timezone.utc).isoformat(),
         'request_id': request_data.get('request_id', 'unknown'),
         'user_id': safe_log(request_data.get('user_id', 'unknown')),
         'action': action,
@@ -459,7 +459,7 @@ def lambda_handler(event: dict[str, Any], context: LambdaContext) -> dict[str, A
         result.update({
             'status': 'deletion_completed',
             'deletion_result': deletion_result,
-            'completed_at': datetime.now(UTC).isoformat()
+            'completed_at': datetime.now(timezone.utc).isoformat()
         })
 
         return result

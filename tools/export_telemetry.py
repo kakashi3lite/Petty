@@ -29,12 +29,20 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 try:
-    from common.aws.s3 import put_json
+    from common.security.crypto_utils import generate_secure_token
     from common.observability.logger import setup_structured_logging
-    from common.security.crypto_utils import generate_secure_token, hash_data
 except ImportError as e:
     print(f"Warning: Could not import all modules: {e}")
     print("Running in standalone mode with limited functionality")
+    
+    # Fallback implementations
+    def generate_secure_token(length=16):
+        import secrets
+        return secrets.token_hex(length)
+    
+    def setup_structured_logging(*args, **kwargs):
+        import logging
+        return logging.getLogger()
 
 
 class DSARExporter:
@@ -94,7 +102,7 @@ class DSARExporter:
 
         # Add noise to numerical values
         for key, value in protected_data.items():
-            if isinstance(value, (int, float)) and key in ['total_steps', 'avg_heart_rate', 'activity_duration']:
+            if isinstance(value, int | float) and key in ['total_steps', 'avg_heart_rate', 'activity_duration']:
                 # Laplace noise for differential privacy
                 noise = random.laplace(0, 1/epsilon)
                 protected_data[key] = max(0, value + noise)
