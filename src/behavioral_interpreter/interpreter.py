@@ -86,12 +86,41 @@ class BehavioralInterpreter:
             timeout=60
         )
         
+        # Load configuration from config module
+        try:
+            from .config import get_global_config
+            self._config = get_global_config()
+            self.rule_version = self._config.config_version
+        except ImportError:
+            # Fallback to hardcoded rules if config module unavailable
+            self.logger.warning("Config module unavailable, using fallback rules")
+            self._config = None
+            self.rule_version = "1.0.0"
+        
         # Versioned behavior rules for auditability
         self.behavior_rules = self._load_behavior_rules()
-        self.rule_version = "1.0.0"
     
     def _load_behavior_rules(self) -> Dict[str, BehaviorRule]:
-        """Load immutable behavior detection rules"""
+        """Load behavior detection rules from config or fallback to defaults"""
+        if self._config:
+            # Load from config module
+            rules = {}
+            for behavior_type, config in self._config.get_all_configs().items():
+                rules[behavior_type] = BehaviorRule(
+                    name=config.name,
+                    min_data_points=config.min_data_points,
+                    confidence_threshold=config.confidence_threshold,
+                    activity_levels=config.activity_levels,
+                    heart_rate_range=config.heart_rate_range,
+                    description=config.description
+                )
+            return rules
+        else:
+            # Fallback to hardcoded rules
+            return self._get_fallback_rules()
+    
+    def _get_fallback_rules(self) -> Dict[str, BehaviorRule]:
+        """Fallback hardcoded behavior detection rules"""
         return {
             "deep_sleep": BehaviorRule(
                 name=BehaviorType.DEEP_SLEEP.value,
