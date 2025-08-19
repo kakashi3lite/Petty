@@ -112,6 +112,10 @@ unlinked_spec.ds
 
 # Coverage
 coverage/
+htmlcov/
+.coverage
+*.cover
+.hypothesis/
 
 # Symbols
 app.*.symbols
