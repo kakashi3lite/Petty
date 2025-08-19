@@ -1,4 +1,0 @@
-# file: /home/runner/work/Petty/Petty/src/common/aws/s3.py
-# hypothesis_version: 6.138.2
-
-[0.2, ',', ':', 'AES256', 'AWS_REGION', 'application/json', 's3', 'utf-8']

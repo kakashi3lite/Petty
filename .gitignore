@@ -112,6 +112,13 @@ unlinked_spec.ds
 
 # Coverage
 coverage/
+.coverage
+coverage.xml
+htmlcov/
+
+# Testing
+.pytest_cache/
+.hypothesis/
 
 # Symbols
 app.*.symbols

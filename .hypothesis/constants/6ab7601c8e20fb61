@@ -1,4 +1,0 @@
-# file: /home/runner/work/Petty/Petty/src/common/observability/logger.py
-# hypothesis_version: 6.138.2
-
-[0.1, 1000, '.', 'DEBUG', 'ENVIRONMENT', 'ERROR', 'INFO', 'SERVICE_NAME', 'WARNING', '[COMPLEX_OBJECT]', '[REDACTED]', '_', 'auth', 'cookie', 'credential', 'credit_card', 'development', 'environment', 'function', 'key', 'level', 'line', 'message', 'module', 'password', 'petty', 'secret', 'service', 'session', 'ssn', 'timestamp', 'token']

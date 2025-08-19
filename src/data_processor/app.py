@@ -37,14 +37,15 @@ except ImportError:
     SECURITY_MODULES_AVAILABLE = False
     logging.warning("Security modules not available - using fallbacks")
 
-# Configure logger
-if AWS_POWERTOOLS_AVAILABLE:
-    logger = Logger(service="data-processor")
-    tracer = Tracer(service="data-processor")
-    metrics = Metrics(service="data-processor", namespace="Petty")
-else:
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
+# >>> PETTY:COPILOT:BEGIN:OBS-LOGGING
+# Use powertools logger/tracer/metrics; read POWERTOOLS_SERVICE_NAME + POWERTOOLS_LOG_LEVEL
+# Replace print() with logger.info/exception; add metrics.add_metric('Requests', 'Count', 1)
+# Decorate handlers with @tracer.capture_lambda_handler
+from common.observability.powertools import setup_powertools, add_request_metric
+
+# Setup powertools with service name from environment
+logger, tracer, metrics = setup_powertools("data-processor")
+# <<< PETTY:COPILOT:END:OBS-LOGGING
 
 # Environment configuration
 TIMESTREAM_DATABASE = os.getenv("TIMESTREAM_DATABASE", "PettyDB")
@@ -252,8 +253,8 @@ class DataProcessor:
 # Global processor instance
 processor = DataProcessor()
 
-@tracer.capture_lambda_handler if AWS_POWERTOOLS_AVAILABLE else lambda x: x
-@logger.inject_lambda_context(log_event=True) if AWS_POWERTOOLS_AVAILABLE else lambda x: x
+@tracer.capture_lambda_handler if tracer else lambda x: x
+@logger.inject_lambda_context(log_event=True) if hasattr(logger, 'inject_lambda_context') else lambda x: x
 @rate_limit_decorator("ingest", tokens=1, key_func=lambda event, context: event.get("body", {}).get("collar_id", "unknown")) if SECURITY_MODULES_AVAILABLE else lambda x: x
 def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, Any]:
     """
@@ -267,6 +268,9 @@ def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, A
     - AWS Timestream integration with retry logic
     """
     request_id = getattr(context, 'aws_request_id', 'unknown')
+    
+    # Add request metric
+    add_request_metric()
     
     try:
         # Parse request body
