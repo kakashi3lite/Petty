@@ -62,8 +62,23 @@ def lambda_handler(event, context):  # type: ignore
             doc["segment"] = segment
 
         key = _build_key(collar_id, event_id)
-        put_json(FEEDBACK_BUCKET, key, doc)
-        logger.info("Feedback stored successfully", event_id=event_id, bucket=FEEDBACK_BUCKET, key=key)
+        
+        # >>> PETTY:COPILOT:BEGIN:S3-PUTJSON
+        # Use put_json(...); ContentType must be application/json
+        # If FEEDBACK_KMS_KEY_ID env set, use SSE-KMS (ServerSideEncryption='aws:kms', SSEKMSKeyId=...)
+        # Key format: feedback/{collar_id}/{event_id}.json
+        kms_key_id = os.getenv("FEEDBACK_KMS_KEY_ID")
+        
+        put_json(
+            bucket=FEEDBACK_BUCKET,
+            key=key,
+            payload=doc,
+            kms_key_id=kms_key_id,
+            content_type="application/json"
+        )
+        # <<< PETTY:COPILOT:END:S3-PUTJSON
+        
+        logger.info("Feedback stored successfully", event_id=event_id, bucket=FEEDBACK_BUCKET, key=key, encryption="KMS" if kms_key_id else "AES256")
         return {"statusCode": 200, "body": json.dumps({"ok": True, "key": key})}
     except Exception as e:  # pragma: no cover
         logger.exception("Feedback processing failed", event_id=event_id, collar_id=collar_id)
