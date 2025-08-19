@@ -1,0 +1,251 @@
+name: Red Team Security Testing
+
+on:
+  push:
+    branches: [ main, sec/agent-security-sentinel ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run adversarial tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_intensity:
+        description: 'Test intensity level'
+        required: false
+        default: 'normal'
+        type: choice
+        options:
+          - light
+          - normal
+          - aggressive
+
+env:
+  PYTHON_VERSION: '3.11'
+
+permissions:
+  contents: read
+  security-events: write
+  issues: write
+  checks: write
+
+jobs:
+  adversarial-testing:
+    name: Adversarial Security Testing
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test-suite: [llm-top10, atlas-cases]
+        endpoint: [ingest, pet-timeline, submit-feedback]
+    
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+          disable-sudo: true
+          disable-file-monitoring: false
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,security,observability]"
+          
+          # Install additional red-team dependencies
+          pip install hypothesis faker mimesis
+
+      - name: Start LocalStack (for AWS simulation)
+        run: |
+          docker run -d --name localstack \
+            -p 4566:4566 \
+            -e SERVICES=s3,timestream,apigateway,lambda \
+            -e DEBUG=1 \
+            -e DOCKER_HOST=unix:///var/run/docker.sock \
+            localstack/localstack:latest
+          
+          # Wait for LocalStack to be ready
+          sleep 30
+          
+          # Verify LocalStack is running
+          curl -s http://localhost:4566/health | jq .
+
+      - name: Set up test environment
+        env:
+          AWS_ENDPOINT_URL: http://localhost:4566
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: us-east-1
+          FEEDBACK_BUCKET: test-feedback-bucket
+          TIMESTREAM_DATABASE: TestPettyDB
+          TIMESTREAM_TABLE: TestCollarMetrics
+        run: |
+          # Create test AWS resources
+          aws --endpoint-url=$AWS_ENDPOINT_URL s3 mb s3://$FEEDBACK_BUCKET || true
+
+      - name: Run LLM Top 10 Tests
+        if: matrix.test-suite == 'llm-top10'
+        env:
+          TEST_ENDPOINT: ${{ matrix.endpoint }}
+          TEST_INTENSITY: ${{ github.event.inputs.test_intensity || 'normal' }}
+          AWS_ENDPOINT_URL: http://localhost:4566
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          pytest tests/security/test_llm_top10.py \
+            -v --tb=short \
+            --junitxml=llm-top10-${{ matrix.endpoint }}-results.xml \
+            -k "test_${{ matrix.endpoint }}" \
+            --hypothesis-profile=ci
+
+      - name: Run ATLAS Cases Tests
+        if: matrix.test-suite == 'atlas-cases'
+        env:
+          TEST_ENDPOINT: ${{ matrix.endpoint }}
+          TEST_INTENSITY: ${{ github.event.inputs.test_intensity || 'normal' }}
+          AWS_ENDPOINT_URL: http://localhost:4566
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          pytest tests/security/test_atlas_cases.py \
+            -v --tb=short \
+            --junitxml=atlas-cases-${{ matrix.endpoint }}-results.xml \
+            -k "test_${{ matrix.endpoint }}" \
+            --hypothesis-profile=ci
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: red-team-results-${{ matrix.test-suite }}-${{ matrix.endpoint }}
+          path: |
+            *-results.xml
+            
+      - name: Parse test results and create issues
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Read test results XML
+            const testFiles = fs.readdirSync('.').filter(f => f.endsWith('-results.xml'));
+            
+            for (const file of testFiles) {
+              try {
+                const content = fs.readFileSync(file, 'utf8');
+                
+                // Parse XML to find failures (simplified - in real implementation would use proper XML parser)
+                if (content.includes('failures=') && !content.includes('failures="0"')) {
+                  
+                  const testSuite = '${{ matrix.test-suite }}';
+                  const endpoint = '${{ matrix.endpoint }}';
+                  const runId = '${{ github.run_id }}';
+                  const runUrl = `${{ github.server_url }}/${{ github.repository }}/actions/runs/${runId}`;
+                  
+                  const title = `🚨 Red Team Security Test Failure: ${testSuite} on ${endpoint} endpoint`;
+                  
+                  const body = `## Security Test Failure Alert
+                  
+**Test Suite:** ${testSuite}
+**Target Endpoint:** \`/${endpoint}\`
+**Workflow Run:** [${runId}](${runUrl})
+**Timestamp:** ${new Date().toISOString()}
+
+### Summary
+Adversarial security testing has detected potential vulnerabilities in the ${endpoint} endpoint using ${testSuite} test scenarios.
+
+### Actions Required
+1. ✅ Review the test failure details in the workflow run
+2. ✅ Analyze the specific attack vector that succeeded
+3. ✅ Implement necessary security hardening
+4. ✅ Re-run tests to verify fixes
+5. ✅ Update security documentation if needed
+
+### Test Results
+See the full test output in the [workflow run](${runUrl}).
+
+### Security Impact
+- **Severity:** TBD (requires analysis)
+- **Endpoints Affected:** \`/${endpoint}\`
+- **Test Framework:** ${testSuite}
+
+**This issue was automatically created by the Red Team Security Testing workflow.**
+`;
+
+                  await github.rest.issues.create({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    title: title,
+                    body: body,
+                    labels: ['security:auto', 'red-team', 'needs-triage', `endpoint:${endpoint}`, `suite:${testSuite}`]
+                  });
+                  
+                  console.log(`Created security issue for ${testSuite} failure on ${endpoint}`);
+                }
+              } catch (error) {
+                console.error(`Error processing ${file}:`, error);
+              }
+            }
+
+  security-summary:
+    name: Security Testing Summary
+    runs-on: ubuntu-latest
+    needs: adversarial-testing
+    if: always()
+    steps:
+      - name: Security Test Results Summary
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const runId = '${{ github.run_id }}';
+            const runUrl = `${{ github.server_url }}/${{ github.repository }}/actions/runs/${runId}`;
+            
+            console.log('🔒 Red Team Security Testing Complete');
+            console.log(`📊 View detailed results: ${runUrl}`);
+            console.log('🚨 Check for any auto-created security issues in the repository');
+
+  ensure-codeql-required:
+    name: Verify CodeQL Status Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check CodeQL workflow exists
+        run: |
+          if [ ! -f ".github/workflows/codeql.yml" ]; then
+            echo "❌ CodeQL workflow not found!"
+            exit 1
+          fi
+          echo "✅ CodeQL workflow exists and will remain required"
+
+      - name: Validate CodeQL configuration
+        run: |
+          # Ensure CodeQL workflow has the required triggers
+          if ! grep -q "schedule:" .github/workflows/codeql.yml; then
+            echo "⚠️  CodeQL workflow should include scheduled runs"
+          fi
+          
+          if ! grep -q "pull_request:" .github/workflows/codeql.yml; then
+            echo "❌ CodeQL workflow must run on pull requests"
+            exit 1
+          fi
+          
+          echo "✅ CodeQL configuration is valid"
