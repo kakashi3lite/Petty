@@ -1,4 +1,0 @@
-# file: /home/runner/work/Petty/Petty/src/common/security/auth.py
-# hypothesis_version: 6.138.2
-
-[3600, 'active', 'created_at', 'exp', 'iat', 'service_name', 'token_', 'user_id']

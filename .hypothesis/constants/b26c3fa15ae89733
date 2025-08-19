@@ -1,4 +1,0 @@
-# file: /home/runner/work/Petty/Petty/src/common/security/redaction.py
-# hypothesis_version: 6.138.2
-
-['[CARD_REDACTED]', '[EMAIL_REDACTED]', '[PHONE_REDACTED]', '[REDACTED]', '[SSN_REDACTED]', 'credit_card', 'email', 'password', 'phone', 'ssn', 'token']

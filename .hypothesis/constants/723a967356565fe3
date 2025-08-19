@@ -1,4 +1,0 @@
-# file: /home/runner/work/Petty/Petty/src/common/security/rate_limiter.py
-# hypothesis_version: 6.138.2
-
-[0.5, 100, 'ai_inference', 'closed', 'default', 'feedback', 'half_open', 'ingest', 'last_refill', 'open', 'timeline', 'tokens']
