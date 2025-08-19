@@ -1,0 +1,363 @@
+name: Coverage Analysis and Quality Gate
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+env:
+  PYTHON_VERSION: '3.11'
+  FLUTTER_VERSION: '3.13.x'
+  # Quality gate thresholds
+  COVERAGE_THRESHOLD_PYTHON: 85
+  COVERAGE_THRESHOLD_FLUTTER: 80
+  COVERAGE_DELTA_THRESHOLD: -2  # Allow maximum 2% coverage decrease
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+  actions: read
+
+jobs:
+  python-coverage:
+    name: Python Coverage Analysis
+    runs-on: ubuntu-latest
+    outputs:
+      coverage-percentage: ${{ steps.coverage.outputs.coverage-percentage }}
+      coverage-delta: ${{ steps.coverage.outputs.coverage-delta }}
+      threshold-met: ${{ steps.coverage.outputs.threshold-met }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+          disable-sudo: true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,security,observability]"
+
+      - name: Run pytest with coverage
+        run: |
+          pytest tests/ \
+            --junitxml=test-results.xml \
+            --cov=src \
+            --cov-report=xml:coverage.xml \
+            --cov-report=html:htmlcov \
+            --cov-report=term \
+            --cov-fail-under=${{ env.COVERAGE_THRESHOLD_PYTHON }}
+        continue-on-error: true
+        id: pytest
+
+      - name: Generate coverage report
+        id: coverage
+        run: |
+          # Extract coverage percentage from coverage.xml
+          COVERAGE_PERCENTAGE=$(python -c "
+          import xml.etree.ElementTree as ET
+          tree = ET.parse('coverage.xml')
+          root = tree.getroot()
+          coverage = float(root.attrib.get('line-rate', 0)) * 100
+          print(f'{coverage:.2f}')
+          ")
+          
+          echo "coverage-percentage=${COVERAGE_PERCENTAGE}" >> $GITHUB_OUTPUT
+          
+          # Calculate coverage delta if this is a PR
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Get coverage from main branch (baseline)
+            git fetch origin main:main
+            git checkout main
+            
+            # Quick test to get baseline coverage (might fail, that's ok)
+            pytest tests/ --cov=src --cov-report=xml:baseline-coverage.xml || echo "Baseline coverage calculation failed"
+            
+            if [ -f "baseline-coverage.xml" ]; then
+              BASELINE_COVERAGE=$(python -c "
+              import xml.etree.ElementTree as ET
+              try:
+                tree = ET.parse('baseline-coverage.xml')
+                root = tree.getroot()
+                coverage = float(root.attrib.get('line-rate', 0)) * 100
+                print(f'{coverage:.2f}')
+              except:
+                print('0.00')
+              ")
+              
+              COVERAGE_DELTA=$(python -c "print(f'{float('${COVERAGE_PERCENTAGE}') - float('${BASELINE_COVERAGE}'):.2f}')")
+              echo "coverage-delta=${COVERAGE_DELTA}" >> $GITHUB_OUTPUT
+            else
+              echo "coverage-delta=0.00" >> $GITHUB_OUTPUT
+            fi
+            
+            git checkout ${{ github.head_ref }}
+          else
+            echo "coverage-delta=0.00" >> $GITHUB_OUTPUT
+          fi
+          
+          # Check if threshold is met
+          THRESHOLD_MET=$(python -c "print('true' if float('${COVERAGE_PERCENTAGE}') >= ${{ env.COVERAGE_THRESHOLD_PYTHON }} else 'false')")
+          echo "threshold-met=${THRESHOLD_MET}" >> $GITHUB_OUTPUT
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: python-coverage-reports
+          path: |
+            coverage.xml
+            htmlcov/
+            test-results.xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        if: always()
+        with:
+          file: ./coverage.xml
+          flags: python
+          name: python-coverage
+          fail_ci_if_error: false
+
+  flutter-coverage:
+    name: Flutter Coverage Analysis
+    runs-on: ubuntu-latest
+    outputs:
+      coverage-percentage: ${{ steps.coverage.outputs.coverage-percentage }}
+      threshold-met: ${{ steps.coverage.outputs.threshold-met }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Get Flutter dependencies
+        working-directory: mobile_app
+        run: flutter pub get
+
+      - name: Run Flutter tests with coverage
+        working-directory: mobile_app
+        run: |
+          flutter test --coverage
+          # Generate LCOV report for easier parsing
+          genhtml coverage/lcov.info -o coverage/html || echo "genhtml not available"
+
+      - name: Generate coverage report
+        id: coverage
+        working-directory: mobile_app
+        run: |
+          # Parse LCOV file for coverage percentage
+          if [ -f "coverage/lcov.info" ]; then
+            COVERAGE_PERCENTAGE=$(python3 -c "
+            import re
+            with open('coverage/lcov.info', 'r') as f:
+                content = f.read()
+            
+            # Extract line coverage data
+            lines_found = re.findall(r'LF:(\d+)', content)
+            lines_hit = re.findall(r'LH:(\d+)', content)
+            
+            if lines_found and lines_hit:
+                total_lines = sum(int(x) for x in lines_found)
+                covered_lines = sum(int(x) for x in lines_hit)
+                coverage = (covered_lines / total_lines * 100) if total_lines > 0 else 0
+                print(f'{coverage:.2f}')
+            else:
+                print('0.00')
+            ")
+          else
+            COVERAGE_PERCENTAGE="0.00"
+          fi
+          
+          echo "coverage-percentage=${COVERAGE_PERCENTAGE}" >> $GITHUB_OUTPUT
+          
+          # Check if threshold is met
+          THRESHOLD_MET=$(python3 -c "print('true' if float('${COVERAGE_PERCENTAGE}') >= ${{ env.COVERAGE_THRESHOLD_FLUTTER }} else 'false')")
+          echo "threshold-met=${THRESHOLD_MET}" >> $GITHUB_OUTPUT
+
+      - name: Upload Flutter coverage reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: flutter-coverage-reports
+          path: mobile_app/coverage/
+
+  coverage-gate:
+    name: Coverage Quality Gate
+    runs-on: ubuntu-latest
+    needs: [python-coverage, flutter-coverage]
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Evaluate coverage quality gate
+        id: gate
+        run: |
+          PYTHON_COVERAGE="${{ needs.python-coverage.outputs.coverage-percentage }}"
+          FLUTTER_COVERAGE="${{ needs.flutter-coverage.outputs.coverage-percentage }}"
+          PYTHON_THRESHOLD_MET="${{ needs.python-coverage.outputs.threshold-met }}"
+          FLUTTER_THRESHOLD_MET="${{ needs.flutter-coverage.outputs.threshold-met }}"
+          COVERAGE_DELTA="${{ needs.python-coverage.outputs.coverage-delta }}"
+          
+          echo "Python Coverage: ${PYTHON_COVERAGE}% (Threshold: ${{ env.COVERAGE_THRESHOLD_PYTHON }}%)"
+          echo "Flutter Coverage: ${FLUTTER_COVERAGE}% (Threshold: ${{ env.COVERAGE_THRESHOLD_FLUTTER }}%)"
+          echo "Coverage Delta: ${COVERAGE_DELTA}%"
+          
+          # Check if coverage delta is acceptable
+          DELTA_ACCEPTABLE=$(python -c "print('true' if float('${COVERAGE_DELTA}') >= ${{ env.COVERAGE_DELTA_THRESHOLD }} else 'false')")
+          
+          if [ "${PYTHON_THRESHOLD_MET}" = "true" ] && [ "${FLUTTER_THRESHOLD_MET}" = "true" ] && [ "${DELTA_ACCEPTABLE}" = "true" ]; then
+            echo "✅ Coverage quality gate PASSED"
+            echo "gate-status=passed" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Coverage quality gate FAILED"
+            echo "gate-status=failed" >> $GITHUB_OUTPUT
+            
+            # Add failure reasons
+            if [ "${PYTHON_THRESHOLD_MET}" = "false" ]; then
+              echo "- Python coverage (${PYTHON_COVERAGE}%) below threshold (${{ env.COVERAGE_THRESHOLD_PYTHON }}%)"
+            fi
+            if [ "${FLUTTER_THRESHOLD_MET}" = "false" ]; then
+              echo "- Flutter coverage (${FLUTTER_COVERAGE}%) below threshold (${{ env.COVERAGE_THRESHOLD_FLUTTER }}%)"
+            fi
+            if [ "${DELTA_ACCEPTABLE}" = "false" ]; then
+              echo "- Coverage decreased by ${COVERAGE_DELTA}% (max allowed: ${{ env.COVERAGE_DELTA_THRESHOLD }}%)"
+            fi
+          fi
+
+      - name: Comment coverage results on PR
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const pythonCoverage = '${{ needs.python-coverage.outputs.coverage-percentage }}';
+            const flutterCoverage = '${{ needs.flutter-coverage.outputs.coverage-percentage }}';
+            const coverageDelta = '${{ needs.python-coverage.outputs.coverage-delta }}';
+            const gateStatus = '${{ steps.gate.outputs.gate-status }}';
+            
+            const statusIcon = gateStatus === 'passed' ? '✅' : '❌';
+            const statusText = gateStatus === 'passed' ? 'PASSED' : 'FAILED';
+            
+            const body = `
+            ## ${statusIcon} Coverage Report
+            
+            **Quality Gate Status: ${statusText}**
+            
+            | Platform | Coverage | Threshold | Status |
+            |----------|----------|-----------|---------|
+            | Python | ${pythonCoverage}% | ${{ env.COVERAGE_THRESHOLD_PYTHON }}% | ${parseFloat(pythonCoverage) >= ${{ env.COVERAGE_THRESHOLD_PYTHON }} ? '✅' : '❌'} |
+            | Flutter | ${flutterCoverage}% | ${{ env.COVERAGE_THRESHOLD_FLUTTER }}% | ${parseFloat(flutterCoverage) >= ${{ env.COVERAGE_THRESHOLD_FLUTTER }} ? '✅' : '❌'} |
+            
+            **Coverage Delta:** ${coverageDelta}% ${parseFloat(coverageDelta) >= ${{ env.COVERAGE_DELTA_THRESHOLD }} ? '✅' : '❌'}
+            
+            ${gateStatus === 'failed' ? '⚠️ **This PR does not meet the coverage requirements and will be blocked from merging.**' : ''}
+            
+            <details>
+            <summary>Quality Gate Thresholds</summary>
+            
+            - Python coverage must be ≥ ${{ env.COVERAGE_THRESHOLD_PYTHON }}%
+            - Flutter coverage must be ≥ ${{ env.COVERAGE_THRESHOLD_FLUTTER }}%
+            - Coverage delta must be ≥ ${{ env.COVERAGE_DELTA_THRESHOLD }}%
+            
+            </details>
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Add coverage labels
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const gateStatus = '${{ steps.gate.outputs.gate-status }}';
+            const pythonThresholdMet = '${{ needs.python-coverage.outputs.threshold-met }}' === 'true';
+            const flutterThresholdMet = '${{ needs.flutter-coverage.outputs.threshold-met }}' === 'true';
+            
+            // Remove existing coverage labels
+            const existingLabels = ['coverage:low', 'coverage:good', 'coverage:excellent', 'quality-gate:failed'];
+            for (const label of existingLabels) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  name: label
+                });
+              } catch (error) {
+                // Label might not exist, ignore error
+              }
+            }
+            
+            // Add appropriate labels
+            const labelsToAdd = [];
+            
+            if (gateStatus === 'failed') {
+              labelsToAdd.push('quality-gate:failed');
+            }
+            
+            const avgCoverage = (parseFloat('${{ needs.python-coverage.outputs.coverage-percentage }}') + 
+                               parseFloat('${{ needs.flutter-coverage.outputs.coverage-percentage }}')) / 2;
+            
+            if (avgCoverage >= 90) {
+              labelsToAdd.push('coverage:excellent');
+            } else if (avgCoverage >= 80) {
+              labelsToAdd.push('coverage:good');
+            } else {
+              labelsToAdd.push('coverage:low');
+            }
+            
+            for (const label of labelsToAdd) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: [label]
+              });
+            }
+
+      - name: Request review if quality gate failed
+        if: steps.gate.outputs.gate-status == 'failed'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            // Request review from repository maintainers if coverage is too low
+            await github.rest.pulls.requestReviewers({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              team_reviewers: ['maintainers'] // Adjust team name as needed
+            });
+
+      - name: Fail the workflow if quality gate failed
+        if: steps.gate.outputs.gate-status == 'failed'
+        run: |
+          echo "❌ Coverage quality gate failed - blocking PR merge"
+          exit 1

@@ -10,8 +10,12 @@ Decode me later; caffeine first.
 ## Badges
 
 [![CI](https://github.com/kakashi3lite/Petty/actions/workflows/ci.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/ci.yml)
+[![Coverage](https://github.com/kakashi3lite/Petty/actions/workflows/coverage.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/coverage.yml)
+[![SBOM](https://github.com/kakashi3lite/Petty/actions/workflows/sbom.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/sbom.yml)
+[![Security](https://github.com/kakashi3lite/Petty/actions/workflows/scorecard.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/scorecard.yml)
 [![CodeQL](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml)
-[![Security Tasks](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml)
+[![OSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/kakashi3lite/Petty/badge)](https://securityscorecards.dev/viewer/?uri=github.com/kakashi3lite/Petty)
+[![Codecov](https://codecov.io/gh/kakashi3lite/Petty/branch/main/graph/badge.svg)](https://codecov.io/gh/kakashi3lite/Petty)
 
 Extended docs live off‑page: [Consumer Overview](docs/CONSUMER_OVERVIEW.md) • [Mobile UI Notes](docs/MOBILE_UI_ADAPTIVE_POLLING.md)
 
@@ -45,6 +49,29 @@ flutter run
 ## Dev Loop
 
 make py.lint • make py.test • make flutter.analyze
+
+## Quality Gates & Thresholds
+
+Our CI/CD pipeline enforces strict quality gates to ensure code quality and security:
+
+### Coverage Requirements
+- **Python Backend:** ≥ 85% code coverage
+- **Flutter Mobile:** ≥ 80% code coverage  
+- **Coverage Delta:** Maximum 2% decrease allowed per PR
+
+### Security Requirements
+- **OSSF Scorecard:** ≥ 7.0/10 score required
+- **CodeQL Alerts:** Zero critical/high severity alerts allowed
+- **Secret Scanning:** Zero unresolved secrets allowed
+- **Dependency Scanning:** No high/critical vulnerabilities in production dependencies
+
+### Supply Chain Security
+- **SBOM Generation:** Automatic Software Bill of Materials for all components
+- **Dependency Review:** Automated review of all new dependencies
+- **Signed Releases:** All releases include cryptographic signatures and attestations
+- **Vulnerability Monitoring:** Continuous monitoring with automated security updates
+
+PRs that don't meet these thresholds will be automatically blocked from merging and require security team review.
 
 ## Security Bits
 
