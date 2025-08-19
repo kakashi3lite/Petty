@@ -149,6 +149,30 @@ DP_CONFIG = {
 - **Query Interface**: Search and filter collected data
 - **Response Time**: Within 30 days of request
 
+#### DSAR (Data Subject Access Request) Flow
+1. **Request Initiation**: Users submit DSAR requests via API or support portal
+2. **Request Validation**: Automated validation of request parameters and user identity
+3. **Data Extraction**: Comprehensive extraction from all data stores (Timestream, S3, etc.)
+4. **Privacy Protection**: Differential privacy applied to aggregated data
+5. **Bundle Creation**: Cryptographically signed export bundle with manifest
+6. **Secure Delivery**: Time-limited presigned URLs for secure download
+7. **Audit Trail**: Complete audit log of all DSAR operations
+
+#### DSAR Export Features
+- **Comprehensive Coverage**: All behavioral events, sensor metrics, location data
+- **Multiple Formats**: JSON primary format with CSV option for tabular data
+- **Cryptographic Integrity**: HMAC-SHA256 signatures for data verification
+- **Differential Privacy**: Configurable privacy protection for sensitive aggregations
+- **Secure Access**: Presigned URLs with 24-hour expiration
+- **Audit Compliance**: Full audit trail meeting regulatory requirements
+
+#### DSAR SLAs (Service Level Agreements)
+- **Simple Requests**: 72 hours for standard data export
+- **Complex Requests**: 7 days for large datasets or custom formats
+- **Maximum Response Time**: 30 days (GDPR compliance requirement)
+- **Download Availability**: 30 days from completion notification
+- **Support Response**: 2 business days for DSAR-related inquiries
+
 ### Rectification Rights (GDPR Article 16)
 - **Profile Updates**: Real-time updates to pet profiles
 - **Data Corrections**: User-initiated corrections to behavioral data
@@ -161,6 +185,26 @@ DP_CONFIG = {
 - **Backup Purging**: Automated removal from all backups
 - **Third-party Notification**: Automatic notification to data processors
 
+#### DSAR Deletion Options
+1. **Soft Deletion with Retention Policies**
+   - **Standard Policy**: 90-day retention for operational recovery
+   - **Short Policy**: 30-day retention for expedited requests
+   - **Immediate Policy**: No retention, immediate marking for deletion
+   - **Legal Hold**: 7-year retention for compliance requirements
+
+2. **Hard Deletion**
+   - **Immediate Removal**: Direct deletion from active systems
+   - **Backup Cleanup**: Coordinated removal from all backup systems
+   - **Audit Trail**: Comprehensive deletion audit records
+   - **Third-party Coordination**: Automatic notification to data processors
+
+#### Deletion SLAs
+- **Soft Deletion**: Marked within 24 hours, final deletion per retention policy
+- **Hard Deletion**: Complete removal within 7 days
+- **Backup Removal**: Within 30 days of deletion request
+- **Verification**: Deletion confirmation within 2 business days
+- **Appeals Process**: 14 days to contest deletion decisions
+
 ### Portability Rights (GDPR Article 20)
 - **Standard Formats**: JSON, CSV export options
 - **API Access**: RESTful API for programmatic data export
@@ -172,6 +216,143 @@ DP_CONFIG = {
 - **Marketing Opt-out**: Granular marketing communication controls
 - **Analytics Opt-out**: Exclude data from analytics and research
 - **Profiling Objection**: Disable behavioral profiling features
+
+## DSAR Technical Implementation
+
+### Architecture Overview
+The DSAR (Data Subject Access Request) system is implemented using a serverless architecture with AWS Step Functions orchestrating the workflow:
+
+```
+API Gateway → DSAR Processor → Step Functions State Machine
+                                      ↓
+                           ┌─────────────────────┐
+                           │  DSAR Workflow      │
+                           │                     │
+                           │  1. Validate        │
+                           │  2. Export/Delete   │
+                           │  3. Generate URLs   │
+                           │  4. Audit & Notify  │
+                           └─────────────────────┘
+                                      ↓
+                              S3 Bucket (Encrypted)
+```
+
+### Core Components
+
+#### 1. DSAR Processor Lambda (`/dsar/request`, `/dsar/status/{id}`)
+- Request validation and sanitization
+- Step Functions workflow orchestration
+- Status tracking and monitoring
+- Rate limiting and security controls
+
+#### 2. DSAR Export Lambda
+- Comprehensive data extraction from Timestream
+- Differential privacy application
+- Cryptographic signing and bundle creation
+- S3 storage with server-side encryption
+
+#### 3. DSAR Delete Lambda
+- Soft deletion with configurable retention
+- Hard deletion for immediate compliance
+- Backup and third-party coordination
+- Comprehensive audit logging
+
+#### 4. Step Functions State Machine
+- Reliable workflow orchestration
+- Error handling and retry logic
+- Parallel processing capabilities
+- Audit trail generation
+
+### Security Features
+
+#### Data Protection
+- **Encryption at Rest**: AES-256 encryption for all stored data
+- **Encryption in Transit**: TLS 1.3 for all data transmission
+- **Cryptographic Signing**: HMAC-SHA256 for data integrity
+- **Access Controls**: Time-limited presigned URLs (24-hour expiration)
+
+#### Privacy Protection
+- **Differential Privacy**: Configurable epsilon values for different use cases
+- **Data Minimization**: Only requested data types included in exports
+- **Anonymization**: Location data anonymized to area-level precision
+- **Audit Compliance**: Full audit trail with 7-year retention
+
+#### Security Controls
+- **Rate Limiting**: 5 requests per hour per user for DSAR endpoints
+- **Input Validation**: Comprehensive request validation and sanitization
+- **Circuit Breakers**: Automatic failure protection with retry logic
+- **Monitoring**: Real-time monitoring and alerting for all operations
+
+### API Endpoints
+
+#### POST /dsar/request
+Submit a new DSAR request for data export or deletion.
+
+**Request Body:**
+```json
+{
+  "user_id": "string",
+  "request_type": "export|delete",
+  "data_types": ["behavioral_events", "sensor_metrics", "location_data"],
+  "date_range": {
+    "start": "2024-01-01T00:00:00Z",
+    "end": "2024-12-31T23:59:59Z"
+  },
+  "deletion_type": "soft|hard",
+  "retention_policy": "immediate|short|standard|legal_hold",
+  "include_raw": false,
+  "apply_differential_privacy": true
+}
+```
+
+**Response:**
+```json
+{
+  "request_id": "abc123def456",
+  "status": "processing",
+  "message": "DSAR request submitted successfully",
+  "estimated_completion": "2024-01-02T12:00:00Z",
+  "execution_arn": "arn:aws:states:..."
+}
+```
+
+#### GET /dsar/status/{request_id}
+Check the status of a DSAR request.
+
+**Response:**
+```json
+{
+  "request_id": "abc123def456",
+  "status": "completed|processing|failed|cancelled",
+  "started_at": "2024-01-01T12:00:00Z",
+  "last_updated": "2024-01-01T15:30:00Z",
+  "download_url": "https://s3.amazonaws.com/...",
+  "download_expires_at": "2024-01-02T15:30:00Z"
+}
+```
+
+### Compliance and Monitoring
+
+#### Audit Trail
+Every DSAR operation generates comprehensive audit records including:
+- Request details and validation results
+- Data extraction and processing logs
+- Export/deletion completion confirmations
+- Access and download tracking
+- Error and exception handling
+
+#### Metrics and Monitoring
+- Request volume and success rates
+- Processing time and performance metrics
+- Data volume and export sizes
+- Security event monitoring
+- Compliance reporting dashboards
+
+#### Regulatory Compliance
+- **GDPR Articles 15-20**: Full compliance with EU data protection rights
+- **Audit Requirements**: 7-year audit trail retention
+- **Data Minimization**: Only necessary data collected and processed
+- **Privacy by Design**: Built-in privacy protection at every stage
 
 ## Privacy Mode Features
 

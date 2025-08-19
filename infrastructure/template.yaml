@@ -26,6 +26,36 @@ Resources:
     Properties:
       BucketName: petty-feedback-data
 
+  DSARBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: petty-dsar-exports
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DSARExportRetention
+            Status: Enabled
+            ExpirationInDays: 30  # GDPR-compliant short retention
+            NoncurrentVersionExpirationInDays: 7
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt DSARProcessorFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: exports/
+      ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+
   DataProcessorRole:
     Type: AWS::IAM::Role
     Properties:
@@ -44,6 +74,80 @@ Resources:
                 Action:
                   - timestream:WriteRecords
                 Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  DSARExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: states.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DSARStateMachinePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: 
+                  - !GetAtt DSARProcessorFunction.Arn
+                  - !GetAtt DSARExportFunction.Arn
+                  - !GetAtt DSARDeleteFunction.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub "${DSARBucket}/*"
+
+  DSARLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DSARLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - timestream:Select
+                  - timestream:DescribeTable
+                  - timestream:WriteRecords
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:GeneratePresignedUrl
+                Resource: 
+                  - !Sub "${DSARBucket}/*"
+                  - !Sub "${FeedbackDataBucket}/*"
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                Resource: !Ref DSARStateMachine
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup
@@ -142,3 +246,197 @@ Resources:
           Properties:
             Path: /submit-feedback
             Method: POST
+
+  DSARProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/dsar_processor/
+      Handler: app.lambda_handler
+      Role: !GetAtt DSARLambdaRole.Arn
+      Timeout: 300
+      Environment:
+        Variables:
+          DSAR_BUCKET: !Ref DSARBucket
+          TIMESTREAM_DB: !Ref TimestreamDatabase
+          TIMESTREAM_TABLE: !Ref TimestreamTable
+          STATE_MACHINE_ARN: !Ref DSARStateMachine
+      Events:
+        DSARRequest:
+          Type: HttpApi
+          Properties:
+            Path: /dsar/request
+            Method: POST
+        DSARStatus:
+          Type: HttpApi
+          Properties:
+            Path: /dsar/status/{request_id}
+            Method: GET
+
+  DSARExportFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/dsar_export/
+      Handler: app.lambda_handler
+      Role: !GetAtt DSARLambdaRole.Arn
+      Timeout: 900
+      Environment:
+        Variables:
+          DSAR_BUCKET: !Ref DSARBucket
+          TIMESTREAM_DB: !Ref TimestreamDatabase
+          TIMESTREAM_TABLE: !Ref TimestreamTable
+
+  DSARDeleteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/dsar_delete/
+      Handler: app.lambda_handler
+      Role: !GetAtt DSARLambdaRole.Arn
+      Timeout: 600
+      Environment:
+        Variables:
+          DSAR_BUCKET: !Ref DSARBucket
+          TIMESTREAM_DB: !Ref TimestreamDatabase
+          TIMESTREAM_TABLE: !Ref TimestreamTable
+
+  DSARStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: PettyDSARWorkflow
+      RoleArn: !GetAtt DSARExecutionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "DSAR (Data Subject Access Request) Processing Workflow",
+          "StartAt": "ValidateRequest",
+          "States": {
+            "ValidateRequest": {
+              "Type": "Task",
+              "Resource": "${DSARProcessorFunction.Arn}",
+              "Parameters": {
+                "action": "validate",
+                "request.$": "$"
+              },
+              "Next": "CheckRequestType",
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.TaskFailed"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2.0
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "RequestFailed",
+                  "ResultPath": "$.error"
+                }
+              ]
+            },
+            "CheckRequestType": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.request_type",
+                  "StringEquals": "export",
+                  "Next": "ProcessExport"
+                },
+                {
+                  "Variable": "$.request_type",
+                  "StringEquals": "delete",
+                  "Next": "ProcessDelete"
+                }
+              ],
+              "Default": "RequestFailed"
+            },
+            "ProcessExport": {
+              "Type": "Task",
+              "Resource": "${DSARExportFunction.Arn}",
+              "Parameters": {
+                "request.$": "$"
+              },
+              "Next": "GeneratePresignedURL",
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.TaskFailed"],
+                  "IntervalSeconds": 5,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2.0
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "ExportFailed",
+                  "ResultPath": "$.error"
+                }
+              ]
+            },
+            "ProcessDelete": {
+              "Type": "Task",
+              "Resource": "${DSARDeleteFunction.Arn}",
+              "Parameters": {
+                "request.$": "$"
+              },
+              "Next": "DeleteComplete",
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.TaskFailed"],
+                  "IntervalSeconds": 5,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2.0
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "DeleteFailed",
+                  "ResultPath": "$.error"
+                }
+              ]
+            },
+            "GeneratePresignedURL": {
+              "Type": "Task",
+              "Resource": "${DSARProcessorFunction.Arn}",
+              "Parameters": {
+                "action": "generate_presigned_url",
+                "request.$": "$"
+              },
+              "Next": "ExportComplete",
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.TaskFailed"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2.0
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "ExportFailed",
+                  "ResultPath": "$.error"
+                }
+              ]
+            },
+            "ExportComplete": {
+              "Type": "Succeed",
+              "OutputPath": "$"
+            },
+            "DeleteComplete": {
+              "Type": "Succeed",
+              "OutputPath": "$"
+            },
+            "RequestFailed": {
+              "Type": "Fail",
+              "Cause": "Invalid or malformed DSAR request"
+            },
+            "ExportFailed": {
+              "Type": "Fail",
+              "Cause": "Failed to process DSAR export request"
+            },
+            "DeleteFailed": {
+              "Type": "Fail",
+              "Cause": "Failed to process DSAR deletion request"
+            }
+          }
+        }
