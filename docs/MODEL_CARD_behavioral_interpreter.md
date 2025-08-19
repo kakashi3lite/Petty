@@ -160,7 +160,35 @@
 
 ## Deployment and Maintenance
 
+## Deployment and Maintenance
+
+### Automated Threshold Tuning
+
+**Tuning Cadence**:
+- **Scheduled Optimization**: Weekly automated tuning every Sunday at 6 AM UTC
+- **Manual Optimization**: Can be triggered via Step Functions for urgent adjustments
+- **Minimum Data Requirement**: 100+ feedback samples for meaningful optimization
+- **Evaluation Window**: Uses rolling 4-week feedback data for cross-validation
+
+**Safety Guardrails**:
+- **Threshold Bounds**: All parameters constrained within safety ranges
+  - Confidence thresholds: 0.6-0.99 (varies by behavior type)
+  - Heart rate ranges: Species-specific physiological limits enforced
+  - Data point requirements: 3-12 minimum samples per detection
+- **Improvement Threshold**: Minimum 3% F1-score improvement required for changes
+- **Rollback Protection**: Automatic reversion if production metrics degrade >20%
+- **Human Oversight**: All changes require PR review and approval
+
+**Optimization Pipeline**:
+1. **Data Collection**: Aggregate user feedback from S3 (feedback/*.json)
+2. **Cross-Validation**: 5-fold CV on labeled behavioral events  
+3. **Bayesian Optimization**: 50-75 iterations using scikit-optimize
+4. **Safety Validation**: Enforce bounds and improvement thresholds
+5. **PR Generation**: Automated GitHub PR with detailed metrics
+6. **Review & Deploy**: Human review required before production deployment
+
 ### Update Schedule
+- **Auto-Tuned Thresholds**: Weekly optimization with manual review
 - **Rule Updates**: Monthly refinements based on performance data
 - **Algorithm Updates**: Quarterly major improvements
 - **Security Patches**: As needed, typically within 24-48 hours
@@ -174,9 +202,19 @@
 
 ### Rollback Procedures
 - **Automated Rollback**: Triggered by performance degradation >20%
+  - Real-time monitoring via CloudWatch alarms
+  - Automatic threshold reversion to last known good configuration
+  - Immediate notification to engineering team
 - **Manual Override**: Expert-initiated rollback for safety concerns
 - **Graceful Degradation**: Fallback to simpler algorithms if needed
 - **User Notification**: Transparent communication about system changes
+
+### Auto-Tuning Monitoring
+- **Optimization Success Rate**: Track weekly tuning completion rate (target: >95%)
+- **Threshold Stability**: Monitor parameter drift and convergence
+- **Performance Impact**: Real-time F1-score tracking post-deployment
+- **Safety Compliance**: Verify all changes stay within bounds
+- **Feedback Loop Quality**: Assess user feedback signal-to-noise ratio
 
 ## Evaluation Metrics and Benchmarks
 

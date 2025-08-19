@@ -142,3 +142,234 @@ Resources:
           Properties:
             Path: /submit-feedback
             Method: POST
+
+  # Auto-tuning infrastructure
+  ThresholdOptimizerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ThresholdOptimizerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource: 
+                  - !Sub "${FeedbackDataBucket}/*"
+                  - !GetAtt FeedbackDataBucket.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  ThresholdOptimizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: threshold_optimizer_app.lambda_handler
+      Runtime: python3.11
+      Timeout: 900  # 15 minutes for optimization
+      MemorySize: 1024
+      Role: !GetAtt ThresholdOptimizerRole.Arn
+      Environment:
+        Variables:
+          FEEDBACK_BUCKET: !Ref FeedbackDataBucket
+
+  GitHubPRCreatorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: GitHubPRCreatorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  GitHubPRCreatorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: github_pr_creator_app.lambda_handler
+      Runtime: python3.11
+      Timeout: 300
+      Role: !GetAtt GitHubPRCreatorRole.Arn
+      Environment:
+        Variables:
+          GITHUB_REPO: kakashi3lite/Petty
+          BASE_BRANCH: main
+          # GITHUB_TOKEN: Set via environment or Parameter Store
+
+  # Step Functions State Machine
+  AutoTuneStateMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: states.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AutoTuneStateMachinePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: 
+                  - !GetAtt ThresholdOptimizerFunction.Arn
+                  - !GetAtt GitHubPRCreatorFunction.Arn
+
+  AutoTuneStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: BehavioralInterpreterAutoTune
+      RoleArn: !GetAtt AutoTuneStateMachineRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "Automated behavioral interpreter threshold tuning pipeline",
+          "StartAt": "OptimizeThresholds",
+          "States": {
+            "OptimizeThresholds": {
+              "Type": "Task",
+              "Resource": "${ThresholdOptimizerFunction.Arn}",
+              "Parameters": {
+                "s3_bucket": "${FeedbackDataBucket}",
+                "feedback_prefix": "feedback/",
+                "dry_run": false,
+                "optimization_calls": 50,
+                "min_improvement": 0.05,
+                "max_feedback_items": 1000
+              },
+              "Next": "CheckOptimizationResults",
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.TaskFailed"],
+                  "IntervalSeconds": 30,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2.0
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "OptimizationFailed"
+                }
+              ]
+            },
+            "CheckOptimizationResults": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.optimization_report.summary.applied_changes_count",
+                  "NumericGreaterThan": 0,
+                  "Next": "CreatePullRequest"
+                }
+              ],
+              "Default": "NoChangesApplied"
+            },
+            "CreatePullRequest": {
+              "Type": "Task",
+              "Resource": "${GitHubPRCreatorFunction.Arn}",
+              "Parameters": {
+                "optimization_report.$": "$.optimization_report",
+                "config_content.$": "$.config_content",
+                "dry_run": false
+              },
+              "Next": "Success",
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.TaskFailed"],
+                  "IntervalSeconds": 10,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2.0
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "PRCreationFailed"
+                }
+              ]
+            },
+            "Success": {
+              "Type": "Succeed",
+              "OutputPath": "$"
+            },
+            "NoChangesApplied": {
+              "Type": "Succeed",
+              "Result": {
+                "message": "No threshold changes applied - insufficient improvement or no feedback data"
+              }
+            },
+            "OptimizationFailed": {
+              "Type": "Fail",
+              "Cause": "Threshold optimization failed",
+              "Error": "OptimizationError"
+            },
+            "PRCreationFailed": {
+              "Type": "Fail",
+              "Cause": "Pull request creation failed",
+              "Error": "PRCreationError"
+            }
+          }
+        }
+
+  # EventBridge rule for scheduled execution
+  AutoTuneScheduleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: events.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AutoTuneSchedulePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                Resource: !Ref AutoTuneStateMachine
+
+  AutoTuneScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Weekly schedule for behavioral interpreter auto-tuning"
+      ScheduleExpression: "cron(0 6 ? * SUN *)"  # Every Sunday at 6 AM UTC
+      State: ENABLED
+      Targets:
+        - Arn: !Ref AutoTuneStateMachine
+          Id: "AutoTuneTarget"
+          RoleArn: !GetAtt AutoTuneScheduleRole.Arn
+          Input: |
+            {
+              "trigger": "scheduled",
+              "optimization_calls": 75,
+              "min_improvement": 0.03
+            }
