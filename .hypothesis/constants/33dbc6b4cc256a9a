@@ -1,0 +1,4 @@
+# file: /home/runner/work/Petty/Petty/src/feedback_handler/app.py
+# hypothesis_version: 6.138.2
+
+[200, 400, 413, 500, 1024, 'FEEDBACK_BUCKET', 'body', 'bucket', 'collar_id', 'correct', 'error', 'event_id', 'feedback error', 'incorrect', 'invalid payload', 'key', 'ok', 'petty-feedback', 'segment', 'segment too large', 'statusCode', 'stored feedback', 'ts', 'user_feedback', '{}']
