@@ -30,7 +30,7 @@ except ImportError:
 try:
     from common.security.input_validators import validate_collar_data, InputValidator
     from common.security.output_schemas import secure_response_wrapper
-    from common.security.rate_limiter import rate_limit_decorator, RateLimitExceeded
+    from common.security.rate_limiter import safe_mode_rate_limit_decorator, RateLimitExceeded
     from common.observability.logger import get_logger
     SECURITY_MODULES_AVAILABLE = True
 except ImportError:
@@ -254,7 +254,7 @@ processor = DataProcessor()
 
 @tracer.capture_lambda_handler if AWS_POWERTOOLS_AVAILABLE else lambda x: x
 @logger.inject_lambda_context(log_event=True) if AWS_POWERTOOLS_AVAILABLE else lambda x: x
-@rate_limit_decorator("ingest", tokens=1, key_func=lambda event, context: event.get("body", {}).get("collar_id", "unknown")) if SECURITY_MODULES_AVAILABLE else lambda x: x
+@safe_mode_rate_limit_decorator("ingest", tokens=1, heavy_route=True, key_func=lambda event, context: event.get("body", {}).get("collar_id", "unknown")) if SECURITY_MODULES_AVAILABLE else lambda x: x
 def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, Any]:
     """
     AWS Lambda handler for collar data ingestion
