@@ -20,13 +20,13 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 try:
     from common.security.input_validators import CollarDataModel, BehaviorEventModel
     from common.security.output_schemas import BehaviorAnalysisOutput, TimelineEventOutput
-    from common.security.rate_limiter import rate_limit_decorator, CircuitBreaker
+    from common.security.rate_limiter import safe_mode_rate_limit_decorator, CircuitBreaker
     from common.observability.logger import get_logger, log_with_context
 except ImportError:
     # Fallback for development without dependencies
     logging.warning("Security and observability modules not available - using fallbacks")
     
-    def rate_limit_decorator(endpoint: str, tokens: int = 1, key_func=None):
+    def safe_mode_rate_limit_decorator(endpoint: str, tokens: int = 1, heavy_route: bool = False, key_func=None):
         def decorator(func):
             return func
         return decorator
@@ -86,6 +86,14 @@ class BehavioralInterpreter:
             timeout=60
         )
         
+        # Import and initialize safe mode configuration
+        try:
+            from .config import get_config
+            self.config = get_config()
+        except ImportError:
+            self.config = None
+            logger.warning("Safe mode configuration not available")
+        
         # Versioned behavior rules for auditability
         self.behavior_rules = self._load_behavior_rules()
         self.rule_version = "1.0.0"
@@ -119,7 +127,7 @@ class BehavioralInterpreter:
             )
         }
     
-    @rate_limit_decorator("ai_inference", tokens=2)
+    @safe_mode_rate_limit_decorator("timeline", tokens=2, heavy_route=True)
     @log_with_context
     def analyze_timeline(self, collar_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """

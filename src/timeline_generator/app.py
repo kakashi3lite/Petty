@@ -2,6 +2,17 @@ import json, os, logging, random, datetime
 from typing import List, Dict, Any
 from behavioral_interpreter.interpreter import BehavioralInterpreter
 
+# Import safe mode decorators
+try:
+    from common.security.rate_limiter import safe_mode_rate_limit_decorator
+    SECURITY_MODULES_AVAILABLE = True
+except ImportError:
+    SECURITY_MODULES_AVAILABLE = False
+    def safe_mode_rate_limit_decorator(endpoint: str, tokens: int = 1, heavy_route: bool = False, key_func=None):
+        def decorator(func):
+            return func
+        return decorator
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -22,6 +33,7 @@ def _stub_last_24h(collar_id: str) -> List[Dict[str, Any]]:
         })
     return data
 
+@safe_mode_rate_limit_decorator("timeline", tokens=1, heavy_route=True, key_func=lambda event, context: event.get("queryStringParameters", {}).get("collar_id", "unknown")) if SECURITY_MODULES_AVAILABLE else lambda x: x
 def lambda_handler(event, context):
     try:
         qs = event.get("queryStringParameters") or {}

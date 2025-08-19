@@ -2,6 +2,17 @@ import json, os, logging, time
 from typing import Any, Dict
 from common.aws.s3 import put_json
 
+# Import safe mode decorators
+try:
+    from common.security.rate_limiter import safe_mode_rate_limit_decorator
+    SECURITY_MODULES_AVAILABLE = True
+except ImportError:
+    SECURITY_MODULES_AVAILABLE = False
+    def safe_mode_rate_limit_decorator(endpoint: str, tokens: int = 1, heavy_route: bool = False, key_func=None):
+        def decorator(func):
+            return func
+        return decorator
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -10,6 +21,7 @@ FEEDBACK_BUCKET = os.getenv("FEEDBACK_BUCKET", "petty-feedback")
 def _build_key(collar_id: str, event_id: str) -> str:
     return f"feedback/{collar_id}/{event_id}.json"
 
+@safe_mode_rate_limit_decorator("feedback", tokens=1, heavy_route=True, key_func=lambda event, context: json.loads(event.get("body", "{}")).get("collar_id", "unknown")) if SECURITY_MODULES_AVAILABLE else lambda x: x
 def lambda_handler(event, context):  # type: ignore
     """Persist user feedback for an event to S3 with SSE.
 

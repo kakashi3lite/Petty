@@ -1,9 +1,11 @@
 """
 Rate limiting and circuit breaker - OWASP LLM04: Model Denial of Service
+Integrated with safe mode for automated canary mitigation
 """
 
 import time
 import asyncio
+import os
 from typing import Dict, Optional, Callable, Any
 from datetime import datetime, timedelta
 from functools import wraps
@@ -26,7 +28,7 @@ class CircuitBreakerOpen(Exception):
     pass
 
 class RateLimiter:
-    """Token bucket rate limiter"""
+    """Token bucket rate limiter with safe mode integration"""
     
     def __init__(self, max_tokens: int, refill_rate: float, window_seconds: int = 60):
         """
@@ -42,14 +44,39 @@ class RateLimiter:
         self.window_seconds = window_seconds
         self.buckets: Dict[str, Dict[str, Any]] = {}
         self.logger = logging.getLogger(__name__)
+        
+        # Store base values for safe mode calculations
+        self._base_max_tokens = max_tokens
+        self._base_refill_rate = refill_rate
+    
+    def _get_safe_mode_multiplier(self) -> float:
+        """Get rate limit multiplier based on current safe mode"""
+        safe_mode = os.getenv("SAFE_MODE", "normal").lower()
+        
+        multipliers = {
+            "normal": 1.0,
+            "elevated": 0.7,
+            "critical": 0.3,
+            "emergency": 0.1
+        }
+        
+        return multipliers.get(safe_mode, 1.0)
+    
+    def _get_effective_limits(self) -> tuple[int, float]:
+        """Get effective rate limits considering safe mode"""
+        multiplier = self._get_safe_mode_multiplier()
+        effective_max_tokens = int(self._base_max_tokens * multiplier)
+        effective_refill_rate = self._base_refill_rate * multiplier
+        return effective_max_tokens, effective_refill_rate
     
     def _get_bucket(self, key: str) -> Dict[str, Any]:
         """Get or create bucket for key"""
         now = time.time()
+        effective_max_tokens, effective_refill_rate = self._get_effective_limits()
         
         if key not in self.buckets:
             self.buckets[key] = {
-                'tokens': self.max_tokens,
+                'tokens': effective_max_tokens,
                 'last_refill': now
             }
         
@@ -57,8 +84,8 @@ class RateLimiter:
         
         # Refill tokens based on time elapsed
         time_elapsed = now - bucket['last_refill']
-        tokens_to_add = time_elapsed * self.refill_rate
-        bucket['tokens'] = min(self.max_tokens, bucket['tokens'] + tokens_to_add)
+        tokens_to_add = time_elapsed * effective_refill_rate
+        bucket['tokens'] = min(effective_max_tokens, bucket['tokens'] + tokens_to_add)
         bucket['last_refill'] = now
         
         return bucket
@@ -224,6 +251,118 @@ _rate_limiters = {
     'feedback': RateLimiter(max_tokens=50, refill_rate=5),   # 5 requests/sec, burst of 50
     'ai_inference': RateLimiter(max_tokens=10, refill_rate=0.5),  # 1 request/2sec, burst of 10
 }
+
+# Heavy routes that should be throttled in safe mode
+HEAVY_ROUTES = {
+    'timeline',   # Timeline generation with ML analysis
+    'ingest',     # High-volume data processing  
+    'feedback'    # Complex feedback processing
+}
+
+
+def is_heavy_route_throttled(endpoint: str) -> bool:
+    """Check if a heavy route should be throttled based on safe mode"""
+    safe_mode = os.getenv("SAFE_MODE", "normal").lower()
+    
+    # Only throttle heavy routes in non-normal safe modes
+    if safe_mode == "normal":
+        return False
+        
+    return endpoint in HEAVY_ROUTES
+
+
+def get_throttling_response() -> Dict[str, Any]:
+    """Get standardized 429 throttling response for safe mode"""
+    safe_mode = os.getenv("SAFE_MODE", "normal").lower()
+    
+    return {
+        "statusCode": 429,
+        "headers": {
+            "Content-Type": "application/json",
+            "Retry-After": "60",
+            "X-Safe-Mode": safe_mode,
+            "X-Rate-Limit-Reason": "safe-mode-throttling"
+        },
+        "body": {
+            "error": "Service temporarily throttled",
+            "message": f"System is in {safe_mode} safe mode. Please try again later.",
+            "safe_mode": safe_mode,
+            "retry_after": 60
+        }
+    }
+
+
+def safe_mode_rate_limit_decorator(
+    endpoint: str,
+    tokens: int = 1,
+    key_func: Optional[Callable] = None,
+    heavy_route: bool = False
+):
+    """
+    Safe mode aware rate limiting decorator
+    
+    Args:
+        endpoint: Rate limiter endpoint name
+        tokens: Number of tokens to consume
+        key_func: Function to extract rate limit key from arguments
+        heavy_route: Whether this is a heavy route that should be throttled
+    """
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Check if heavy route should be throttled
+            if heavy_route and is_heavy_route_throttled(endpoint):
+                return get_throttling_response()
+            
+            # Extract rate limit key
+            if key_func:
+                key = key_func(*args, **kwargs)
+            else:
+                # Default to using first argument as key or 'default'
+                key = str(args[0]) if args else 'default'
+            
+            # Check rate limit
+            rate_limiter = _rate_limiters.get(endpoint)
+            if rate_limiter:
+                try:
+                    rate_limiter.check_limit(key, tokens)
+                except RateLimitExceeded:
+                    return get_throttling_response()
+            
+            return func(*args, **kwargs)
+        
+        @wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            # Check if heavy route should be throttled
+            if heavy_route and is_heavy_route_throttled(endpoint):
+                return get_throttling_response()
+                
+            # Extract rate limit key
+            if key_func:
+                key = key_func(*args, **kwargs)
+            else:
+                # Default to using first argument as key or 'default'
+                key = str(args[0]) if args else 'default'
+            
+            # Check rate limit
+            rate_limiter = _rate_limiters.get(endpoint)
+            if rate_limiter:
+                try:
+                    rate_limiter.check_limit(key, tokens)
+                except RateLimitExceeded:
+                    return get_throttling_response()
+            
+            if asyncio.iscoroutinefunction(func):
+                return await func(*args, **kwargs)
+            else:
+                return func(*args, **kwargs)
+        
+        if asyncio.iscoroutinefunction(func):
+            return async_wrapper
+        else:
+            return wrapper
+    
+    return decorator
 
 def rate_limit_decorator(
     endpoint: str,
