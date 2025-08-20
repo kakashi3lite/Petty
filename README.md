@@ -13,7 +13,7 @@ Decode me later; caffeine first.
 [![CodeQL](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml)
 [![Security Tasks](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml)
 
-Extended docs live off‑page: [Consumer Overview](docs/CONSUMER_OVERVIEW.md) • [Mobile UI Notes](docs/MOBILE_UI_ADAPTIVE_POLLING.md)
+Extended docs live off‑page: [Consumer Overview](docs/CONSUMER_OVERVIEW.md) • [Mobile UI Notes](docs/MOBILE_UI_ADAPTIVE_POLLING.md) • [Branch Sync Guide](docs/BRANCH_SYNC_GUIDE.md)
 
 ## What Actually Exists (Today)
 
@@ -44,7 +44,7 @@ flutter run
 
 ## Dev Loop
 
-make py.lint • make py.test • make flutter.analyze
+make py.lint • make py.test • make flutter.analyze • make branches-summary
 
 ## Security Bits
 
