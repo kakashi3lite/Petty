@@ -20,6 +20,10 @@ build/
 .github/copilot-instructions.md
 SECURITY_DIGEST.md
 
+# Branch sync reports
+branch_sync_*.json
+branch_sync_*.txt
+
 # Flutter / Dart
 /bin/cache/
 /bin/internal/bootstrap.bat
