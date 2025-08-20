@@ -190,6 +190,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     return '--';
   }
 
+  // >>> PETTY:COPILOT:BEGIN:ADAPTIVE-POLLING
+  // Replace fixed Stream.periodic(15s) with adaptive polling:
+  // 5s when app is active & data changed in last minute; else 25s.
+  // Debounce >= 12s via StreamTransformer; cancel timers/subscriptions on dispose using ref.onDispose.
   static final _realTimeProvider = StreamProvider.autoDispose<Map<String, dynamic>>((ref) {
     final service = APIService(baseUrl: _apiBaseUrl);
     final adaptiveStream = DebouncedAdaptiveStream<Map<String, dynamic>>(
@@ -207,6 +211,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
 
     return adaptiveStream.stream;
   });
+  // <<< PETTY:COPILOT:END:ADAPTIVE-POLLING
 
   static final _adaptiveStreamInstanceProvider = StateProvider<DebouncedAdaptiveStream<Map<String, dynamic>>?>((ref) => null);
 
