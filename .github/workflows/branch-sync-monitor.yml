@@ -1,0 +1,186 @@
+name: Branch Sync Monitor
+
+on:
+  schedule:
+    # Run daily at 8:00 AM UTC to check branch sync status
+    - cron: '0 8 * * *'
+  
+  workflow_dispatch:
+    inputs:
+      create_issue:
+        description: 'Create GitHub issue for out-of-sync branches'
+        required: false
+        default: 'true'
+        type: boolean
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  branch-sync-check:
+    runs-on: ubuntu-latest
+    name: Check Branch Synchronization
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch full history for branch comparison
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Fetch all branches
+      run: |
+        git remote set-branches origin '*'
+        git fetch --all
+    
+    - name: Check branch synchronization status
+      id: sync-check
+      run: |
+        echo "Checking branch synchronization status..."
+        python tools/branch_sync_check.py --json > branch_status.json
+        
+        # Extract summary statistics
+        TOTAL_BRANCHES=$(jq '.branches | length' branch_status.json)
+        BEHIND_COUNT=$(jq '[.branches[] | select(.is_behind and .is_ahead == false)] | length' branch_status.json)
+        DIVERGED_COUNT=$(jq '[.branches[] | select(.is_behind and .is_ahead)] | length' branch_status.json)
+        AHEAD_COUNT=$(jq '[.branches[] | select(.is_ahead and .is_behind == false)] | length' branch_status.json)
+        UP_TO_DATE=$(jq '[.branches[] | select(.is_ahead == false and .is_behind == false and .name != "main")] | length' branch_status.json)
+        
+        echo "total_branches=$TOTAL_BRANCHES" >> $GITHUB_OUTPUT
+        echo "behind_count=$BEHIND_COUNT" >> $GITHUB_OUTPUT
+        echo "diverged_count=$DIVERGED_COUNT" >> $GITHUB_OUTPUT
+        echo "ahead_count=$AHEAD_COUNT" >> $GITHUB_OUTPUT
+        echo "up_to_date=$UP_TO_DATE" >> $GITHUB_OUTPUT
+        
+        # Check if action is needed
+        if [ "$BEHIND_COUNT" -gt 0 ] || [ "$DIVERGED_COUNT" -gt 0 ]; then
+          echo "action_needed=true" >> $GITHUB_OUTPUT
+        else
+          echo "action_needed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # Save full report
+        echo "## Branch Synchronization Report" > sync_report.md
+        echo "" >> sync_report.md
+        echo "**Generated:** $(date -u)" >> sync_report.md
+        echo "" >> sync_report.md
+        echo "### Summary" >> sync_report.md
+        echo "- Total branches: $TOTAL_BRANCHES" >> sync_report.md
+        echo "- Up to date: $UP_TO_DATE" >> sync_report.md
+        echo "- Behind main: $BEHIND_COUNT" >> sync_report.md
+        echo "- Ahead of main: $AHEAD_COUNT" >> sync_report.md
+        echo "- Diverged: $DIVERGED_COUNT" >> sync_report.md
+        echo "" >> sync_report.md
+        
+        if [ "$BEHIND_COUNT" -gt 0 ]; then
+          echo "### 🔴 Branches Behind Main (need sync)" >> sync_report.md
+          jq -r '[.branches[] | select(.is_behind and .is_ahead == false)] | 
+                  sort_by(.commit_date) | reverse | 
+                  .[] | "- **\(.name)**: \(.behind_count) commits behind (last commit: \(.commit_date))"' branch_status.json >> sync_report.md
+          echo "" >> sync_report.md
+        fi
+        
+        if [ "$DIVERGED_COUNT" -gt 0 ]; then
+          echo "### 🟡 Diverged Branches (need manual merge)" >> sync_report.md
+          jq -r '[.branches[] | select(.is_behind and .is_ahead)] | 
+                  sort_by(.commit_date) | reverse | 
+                  .[] | "- **\(.name)**: \(.behind_count) behind, \(.ahead_count) ahead (last commit: \(.commit_date))"' branch_status.json >> sync_report.md
+          echo "" >> sync_report.md
+        fi
+        
+        echo "### Sync Commands" >> sync_report.md
+        echo "" >> sync_report.md
+        echo "To sync branches, run:" >> sync_report.md
+        echo '```bash' >> sync_report.md
+        echo "make branches-sync-commands" >> sync_report.md
+        echo '```' >> sync_report.md
+    
+    - name: Upload branch status artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: branch-sync-status
+        path: |
+          branch_status.json
+          sync_report.md
+    
+    - name: Create or update issue
+      if: steps.sync-check.outputs.action_needed == 'true' && (github.event.inputs.create_issue == 'true' || github.event_name == 'schedule')
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const report = fs.readFileSync('sync_report.md', 'utf8');
+          
+          const title = `Branch Sync Alert: ${context.payload.inputs?.behind_count || '${{ steps.sync-check.outputs.behind_count }}'} behind, ${context.payload.inputs?.diverged_count || '${{ steps.sync-check.outputs.diverged_count }}'} diverged`;
+          
+          const body = `${report}
+          
+          ---
+          
+          **Automation Info:**
+          - Workflow: \`${context.workflow}\`
+          - Run ID: \`${context.runId}\`
+          - Triggered: ${context.eventName === 'schedule' ? 'Scheduled' : 'Manual'}
+          
+          This issue was automatically created by the Branch Sync Monitor workflow.
+          `;
+          
+          // Check for existing open issues
+          const issues = await github.rest.issues.listForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            state: 'open',
+            labels: 'branch-sync-alert'
+          });
+          
+          const existingIssue = issues.data.find(issue => 
+            issue.title.includes('Branch Sync Alert')
+          );
+          
+          if (existingIssue) {
+            // Update existing issue
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: existingIssue.number,
+              title: title,
+              body: body
+            });
+            
+            console.log(`Updated existing issue #${existingIssue.number}`);
+          } else {
+            // Create new issue
+            const newIssue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['branch-sync-alert', 'maintenance']
+            });
+            
+            console.log(`Created new issue #${newIssue.data.number}`);
+          }
+    
+    - name: Post summary
+      run: |
+        echo "## Branch Sync Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- Total branches: ${{ steps.sync-check.outputs.total_branches }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Up to date: ${{ steps.sync-check.outputs.up_to_date }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Behind main: ${{ steps.sync-check.outputs.behind_count }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Ahead of main: ${{ steps.sync-check.outputs.ahead_count }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Diverged: ${{ steps.sync-check.outputs.diverged_count }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ steps.sync-check.outputs.action_needed }}" == "true" ]; then
+          echo "⚠️ **Action needed**: Some branches are out of sync with main." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Run \`make branches-sync-commands\` to see sync instructions." >> $GITHUB_STEP_SUMMARY
+        else
+          echo "✅ **All branches are in sync!**" >> $GITHUB_STEP_SUMMARY
+        fi
