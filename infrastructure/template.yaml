@@ -6,6 +6,11 @@ Globals:
   Function:
     Timeout: 15
     Runtime: python3.11
+    # >>> PETTY:COPILOT:BEGIN:SAM-VALIDATION-TIGHTEN
+    # Ensure Globals: Function: Tracing: Active
+    # Keep IAM least-privilege where feasible; retain current logical IDs (no stack replacement)
+    Tracing: Active
+    # <<< PETTY:COPILOT:END:SAM-VALIDATION-TIGHTEN
 
 Resources:
   TimestreamDatabase:

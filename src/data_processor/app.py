@@ -32,19 +32,24 @@ try:
     from common.security.output_schemas import secure_response_wrapper
     from common.security.rate_limiter import rate_limit_decorator, RateLimitExceeded
     from common.observability.logger import get_logger
+    from common.aws.timestream import write_records
     SECURITY_MODULES_AVAILABLE = True
 except ImportError:
     SECURITY_MODULES_AVAILABLE = False
     logging.warning("Security modules not available - using fallbacks")
 
-# Configure logger
+# >>> PETTY:COPILOT:BEGIN:OBS-LOGGING
+# Use powertools logger/tracer/metrics; read POWERTOOLS_SERVICE_NAME + POWERTOOLS_LOG_LEVEL
+# Replace print() with logger.info/exception; add metrics.add_metric('Requests', 'Count', 1)
+# Decorate handlers with @tracer.capture_lambda_handler
 if AWS_POWERTOOLS_AVAILABLE:
-    logger = Logger(service="data-processor")
-    tracer = Tracer(service="data-processor")
-    metrics = Metrics(service="data-processor", namespace="Petty")
+    logger = Logger(service=os.getenv("POWERTOOLS_SERVICE_NAME", "data-processor"))
+    tracer = Tracer(service=os.getenv("POWERTOOLS_SERVICE_NAME", "data-processor"))
+    metrics = Metrics(service=os.getenv("POWERTOOLS_SERVICE_NAME", "data-processor"), namespace="Petty")
 else:
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
+# <<< PETTY:COPILOT:END:OBS-LOGGING
 
 # Environment configuration
 TIMESTREAM_DATABASE = os.getenv("TIMESTREAM_DATABASE", "PettyDB")
@@ -162,7 +167,7 @@ class DataProcessor:
     
     def _write_to_timestream(self, data: Dict[str, Any], request_id: str) -> Dict[str, Any]:
         """
-        Write validated data to AWS Timestream
+        Write validated data to AWS Timestream using the helper with retries/backoff.
         
         Args:
             data: Validated collar data
@@ -222,12 +227,16 @@ class DataProcessor:
                 ]
             }
             
-            # Write to Timestream with retry logic
-            response = timestream_client.write_records(
-                DatabaseName=TIMESTREAM_DATABASE,
-                TableName=TIMESTREAM_TABLE,
-                Records=[record]
-            )
+            # Use helper with retries/backoff
+            if SECURITY_MODULES_AVAILABLE:
+                response = write_records(TIMESTREAM_DATABASE, TIMESTREAM_TABLE, [record])
+            else:
+                # Fallback to direct client call
+                response = timestream_client.write_records(
+                    DatabaseName=TIMESTREAM_DATABASE,
+                    TableName=TIMESTREAM_TABLE,
+                    Records=[record]
+                )
             
             self.logger.debug(
                 "Data written to Timestream",
@@ -239,7 +248,7 @@ class DataProcessor:
             
             return response
             
-        except (ClientError, BotoCoreError) as e:
+        except Exception as e:
             self.logger.error(
                 "Timestream write failed",
                 error=str(e),
@@ -267,6 +276,10 @@ def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, A
     - AWS Timestream integration with retry logic
     """
     request_id = getattr(context, 'aws_request_id', 'unknown')
+    
+    # Add metrics for request count
+    if AWS_POWERTOOLS_AVAILABLE:
+        metrics.add_metric(name="Requests", unit="Count", value=1)
     
     try:
         # Parse request body
@@ -301,7 +314,12 @@ def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, A
         logger.info("Processing collar data ingestion", request_id=request_id)
         
         # Process the telemetry data
+        # >>> PETTY:COPILOT:BEGIN:TS-WRITE
+        # Validate payload (collar_id, ISO8601 timestamp, heart_rate:int, activity_level:{0,1,2}, GeoJSON Point)
+        # Shape dimensions & measures; call write_records(...)
+        # On validation error -> 400; else -> 200 {ok:true}
         result = processor.process_telemetry(body, request_id)
+        # <<< PETTY:COPILOT:END:TS-WRITE
         
         # Add CORS headers for browser compatibility
         if isinstance(result, dict) and "headers" not in result:

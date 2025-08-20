@@ -10,6 +10,8 @@ Decode me later; caffeine first.
 ## Badges
 
 [![CI](https://github.com/kakashi3lite/Petty/actions/workflows/ci.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/ci.yml)
+[![Coverage](https://github.com/kakashi3lite/Petty/actions/workflows/coverage.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/coverage.yml)
+[![codecov](https://codecov.io/gh/kakashi3lite/Petty/branch/main/graph/badge.svg)](https://codecov.io/gh/kakashi3lite/Petty)
 [![CodeQL](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml)
 [![Security Tasks](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml)
 

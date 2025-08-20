@@ -107,9 +107,14 @@ jobs:
         run: |
           mypy src/ tests/ --junit-xml=mypy-report.xml
 
+      # >>> PETTY:COPILOT:BEGIN:PYTEST-ISOLATION
+      # Export PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 before running pytest
       - name: Run pytest
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: 1
         run: |
           pytest tests/ --junitxml=test-results.xml --cov=src --cov-report=xml --cov-report=html
+      # <<< PETTY:COPILOT:END:PYTEST-ISOLATION
 
       - name: Upload test results
         uses: actions/upload-artifact@v3
