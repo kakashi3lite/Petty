@@ -3,17 +3,20 @@ Observability module with AWS Lambda Powertools integration
 """
 
 from .logger import setup_structured_logging, get_logger, log_with_context
-from .tracer import setup_tracing, trace_function, get_tracer
-from .metrics import setup_metrics, record_metric, get_metrics
 
-__all__ = [
-    "setup_structured_logging",
-    "get_logger", 
-    "log_with_context",
-    "setup_tracing",
-    "trace_function",
-    "get_tracer",
-    "setup_metrics",
-    "record_metric",
-    "get_metrics",
-]
+try:
+    from .powertools import get_powertools_logger, get_powertools_tracer, get_powertools_metrics
+    __all__ = [
+        "setup_structured_logging",
+        "get_logger", 
+        "log_with_context",
+        "get_powertools_logger",
+        "get_powertools_tracer",
+        "get_powertools_metrics",
+    ]
+except ImportError:
+    __all__ = [
+        "setup_structured_logging",
+        "get_logger", 
+        "log_with_context",
+    ]

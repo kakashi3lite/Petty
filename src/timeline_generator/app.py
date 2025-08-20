@@ -2,8 +2,22 @@ import json, os, logging, random, datetime
 from typing import List, Dict, Any
 from behavioral_interpreter.interpreter import BehavioralInterpreter
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+# >>> PETTY:COPILOT:BEGIN:OBS-LOGGING
+# Use powertools logger/tracer/metrics; read POWERTOOLS_SERVICE_NAME + POWERTOOLS_LOG_LEVEL
+# Replace print() with logger.info/exception; add metrics.add_metric('Requests', 'Count', 1)
+# Decorate handlers with @tracer.capture_lambda_handler
+try:
+    from aws_lambda_powertools import Logger, Tracer, Metrics
+    from aws_lambda_powertools.utilities.typing import LambdaContext
+    AWS_POWERTOOLS_AVAILABLE = True
+    logger = Logger(service=os.getenv("POWERTOOLS_SERVICE_NAME", "timeline-generator"))
+    tracer = Tracer(service=os.getenv("POWERTOOLS_SERVICE_NAME", "timeline-generator"))
+    metrics = Metrics(service=os.getenv("POWERTOOLS_SERVICE_NAME", "timeline-generator"), namespace="Petty")
+except ImportError:
+    AWS_POWERTOOLS_AVAILABLE = False
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+# <<< PETTY:COPILOT:END:OBS-LOGGING
 
 def _stub_last_24h(collar_id: str) -> List[Dict[str, Any]]:
     # Simulated 24h of points every 10 minutes
@@ -22,7 +36,13 @@ def _stub_last_24h(collar_id: str) -> List[Dict[str, Any]]:
         })
     return data
 
+@tracer.capture_lambda_handler if AWS_POWERTOOLS_AVAILABLE else lambda x: x
+@logger.inject_lambda_context(log_event=True) if AWS_POWERTOOLS_AVAILABLE else lambda x: x
 def lambda_handler(event, context):
+    # Add metrics for request count
+    if AWS_POWERTOOLS_AVAILABLE:
+        metrics.add_metric(name="Requests", unit="Count", value=1)
+    
     try:
         qs = event.get("queryStringParameters") or {}
         collar_id = qs.get("collar_id") or "SN-123"

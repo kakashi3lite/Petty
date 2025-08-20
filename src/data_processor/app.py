@@ -37,14 +37,18 @@ except ImportError:
     SECURITY_MODULES_AVAILABLE = False
     logging.warning("Security modules not available - using fallbacks")
 
-# Configure logger
+# >>> PETTY:COPILOT:BEGIN:OBS-LOGGING
+# Use powertools logger/tracer/metrics; read POWERTOOLS_SERVICE_NAME + POWERTOOLS_LOG_LEVEL
+# Replace print() with logger.info/exception; add metrics.add_metric('Requests', 'Count', 1)
+# Decorate handlers with @tracer.capture_lambda_handler
 if AWS_POWERTOOLS_AVAILABLE:
-    logger = Logger(service="data-processor")
-    tracer = Tracer(service="data-processor")
-    metrics = Metrics(service="data-processor", namespace="Petty")
+    logger = Logger(service=os.getenv("POWERTOOLS_SERVICE_NAME", "data-processor"))
+    tracer = Tracer(service=os.getenv("POWERTOOLS_SERVICE_NAME", "data-processor"))
+    metrics = Metrics(service=os.getenv("POWERTOOLS_SERVICE_NAME", "data-processor"), namespace="Petty")
 else:
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
+# <<< PETTY:COPILOT:END:OBS-LOGGING
 
 # Environment configuration
 TIMESTREAM_DATABASE = os.getenv("TIMESTREAM_DATABASE", "PettyDB")
@@ -267,6 +271,10 @@ def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, A
     - AWS Timestream integration with retry logic
     """
     request_id = getattr(context, 'aws_request_id', 'unknown')
+    
+    # Add metrics for request count
+    if AWS_POWERTOOLS_AVAILABLE:
+        metrics.add_metric(name="Requests", unit="Count", value=1)
     
     try:
         # Parse request body
