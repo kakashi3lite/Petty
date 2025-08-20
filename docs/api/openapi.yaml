@@ -1,0 +1,895 @@
+openapi: 3.0.3
+info:
+  title: Petty API
+  description: |
+    AI-powered pet monitoring and behavioral analysis platform API
+    
+    ## Features
+    - Real-time pet monitoring
+    - Behavioral analysis and insights
+    - Health scoring and recommendations
+    - Alert system for anomalies
+    - Secure data handling with privacy controls
+    
+    ## Authentication
+    This API uses API Key authentication. Include your API key in the Authorization header:
+    ```
+    Authorization: Bearer pk_your_api_key_here
+    ```
+    
+    ## Rate Limits
+    - Data Ingestion: 100 requests/minute
+    - Query APIs: 1000 requests/minute
+    - Real-time APIs: 500 requests/minute
+    
+  version: 1.0.0
+  contact:
+    name: Petty API Support
+    email: api-support@petty.ai
+    url: https://github.com/kakashi3lite/Petty
+  license:
+    name: MIT
+    url: https://github.com/kakashi3lite/Petty/blob/main/LICENSE
+
+servers:
+  - url: https://api.petty.ai/v1
+    description: Production server
+  - url: https://staging-api.petty.ai/v1
+    description: Staging server
+  - url: http://localhost:3000/v1
+    description: Local development server
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /health:
+    get:
+      summary: Health check endpoint
+      description: Returns the health status of the API
+      tags:
+        - System
+      security: []
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  version:
+                    type: string
+                    example: 1.0.0
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: 2024-01-20T10:30:00Z
+
+  /ingest:
+    post:
+      summary: Ingest collar sensor data
+      description: Submit sensor data from pet collar for behavioral analysis
+      tags:
+        - Data Ingestion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CollarData'
+            examples:
+              active_dog:
+                summary: Active dog playing
+                value:
+                  collar_id: SN-12345
+                  timestamp: 2024-01-20T10:30:00Z
+                  heart_rate: 120
+                  activity_level: 0.9
+                  location:
+                    latitude: 37.7749
+                    longitude: -122.4194
+                    accuracy: 5.0
+                  temperature: 38.5
+                  battery_level: 0.85
+              resting_dog:
+                summary: Dog at rest
+                value:
+                  collar_id: SN-12345
+                  timestamp: 2024-01-20T10:30:00Z
+                  heart_rate: 65
+                  activity_level: 0.1
+                  temperature: 38.2
+                  battery_level: 0.92
+      responses:
+        '200':
+          description: Data ingested successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestionResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /realtime:
+    get:
+      summary: Get real-time pet status
+      description: Retrieve current pet status and recent activity data
+      tags:
+        - Real-time Data
+      parameters:
+        - name: collar_id
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^[A-Z]{2}-\d{3,6}$'
+          example: SN-12345
+          description: Unique collar identifier
+        - name: window
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1440
+            default: 60
+          description: Time window in minutes for recent data
+      responses:
+        '200':
+          description: Real-time data retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RealTimeData'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+
+  /pet-timeline:
+    get:
+      summary: Get pet behavioral timeline
+      description: Retrieve behavioral events and timeline for a pet
+      tags:
+        - Analytics
+      parameters:
+        - name: collar_id
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^[A-Z]{2}-\d{3,6}$'
+          example: SN-12345
+        - name: start_time
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Start time for timeline (ISO 8601)
+        - name: end_time
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: End time for timeline (ISO 8601)
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+          description: Maximum number of events to return
+        - name: event_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [resting, walking, running, playing, eating, sleeping]
+          description: Filter by event type
+      responses:
+        '200':
+          description: Timeline retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimelineResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /pet-plan:
+    get:
+      summary: Get personalized care plan
+      description: Retrieve personalized care recommendations and nutrition plan
+      tags:
+        - Recommendations
+      parameters:
+        - name: collar_id
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^[A-Z]{2}-\d{3,6}$'
+          example: SN-12345
+      responses:
+        '200':
+          description: Care plan retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CarePlan'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /submit-feedback:
+    post:
+      summary: Submit user feedback
+      description: Submit feedback on behavioral event accuracy for model improvement
+      tags:
+        - Feedback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserFeedback'
+            examples:
+              correct_event:
+                summary: Correct behavioral classification
+                value:
+                  event_id: evt_abc123
+                  user_feedback: correct
+                  confidence: 0.95
+                  notes: Dog was indeed playing with neighbor's dog
+              incorrect_event:
+                summary: Incorrect behavioral classification
+                value:
+                  event_id: evt_xyz789
+                  user_feedback: incorrect
+                  confidence: 0.8
+                  notes: Dog was actually sleeping, not playing
+      responses:
+        '200':
+          description: Feedback submitted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+
+  /alerts:
+    get:
+      summary: Get active alerts
+      description: Retrieve active alerts for a pet collar
+      tags:
+        - Alerts
+      parameters:
+        - name: collar_id
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^[A-Z]{2}-\d{3,6}$'
+        - name: severity
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [low, medium, high, critical]
+          description: Filter by alert severity
+        - name: active_only
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: true
+          description: Return only active alerts
+      responses:
+        '200':
+          description: Alerts retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertsResponse'
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+      description: API key authentication using Bearer token
+
+  schemas:
+    CollarData:
+      type: object
+      required:
+        - collar_id
+        - timestamp
+        - heart_rate
+        - activity_level
+      properties:
+        collar_id:
+          type: string
+          pattern: '^[A-Z]{2}-\d{3,6}$'
+          description: Unique collar identifier
+          example: SN-12345
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp of the sensor reading (ISO 8601)
+          example: 2024-01-20T10:30:00Z
+        heart_rate:
+          type: number
+          minimum: 40
+          maximum: 200
+          description: Heart rate in beats per minute
+          example: 85
+        activity_level:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          description: Activity level on a scale of 0.0 (rest) to 1.0 (very active)
+          example: 0.7
+        location:
+          $ref: '#/components/schemas/Location'
+        temperature:
+          type: number
+          minimum: 35.0
+          maximum: 42.0
+          description: Body temperature in Celsius
+          example: 38.5
+        battery_level:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          description: Battery level as a percentage (0.0 to 1.0)
+          example: 0.85
+        signal_strength:
+          type: number
+          minimum: -120
+          maximum: 0
+          description: Signal strength in dBm
+          example: -45
+
+    Location:
+      type: object
+      required:
+        - latitude
+        - longitude
+      properties:
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+          description: Latitude coordinate
+          example: 37.7749
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+          description: Longitude coordinate
+          example: -122.4194
+        accuracy:
+          type: number
+          minimum: 0
+          description: Location accuracy in meters
+          example: 5.0
+
+    BehaviorEvent:
+      type: object
+      properties:
+        event_id:
+          type: string
+          description: Unique event identifier
+          example: evt_abc123
+        timestamp:
+          type: string
+          format: date-time
+          example: 2024-01-20T10:15:00Z
+        event_type:
+          type: string
+          enum: [resting, walking, running, playing, eating, sleeping]
+          description: Type of behavioral event detected
+          example: playing
+        confidence:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          description: Confidence score for the event classification
+          example: 0.89
+        duration:
+          type: integer
+          minimum: 0
+          description: Duration of the event in seconds
+          example: 1200
+        metadata:
+          type: object
+          description: Additional event metadata
+          example:
+            intensity: high
+            location_type: park
+            social_interaction: true
+
+    IngestionResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success, error]
+          example: success
+        events_detected:
+          type: integer
+          minimum: 0
+          description: Number of behavioral events detected
+          example: 2
+        request_id:
+          type: string
+          description: Unique request identifier
+          example: req_abc123
+        processed_at:
+          type: string
+          format: date-time
+          example: 2024-01-20T10:30:01Z
+
+    RealTimeData:
+      type: object
+      properties:
+        collar_id:
+          type: string
+          example: SN-12345
+        pet_info:
+          $ref: '#/components/schemas/PetInfo'
+        current_status:
+          $ref: '#/components/schemas/CurrentStatus'
+        health_score:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          description: Overall health score
+          example: 0.92
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Alert'
+          description: Active alerts for this pet
+        last_updated:
+          type: string
+          format: date-time
+          example: 2024-01-20T10:30:00Z
+
+    PetInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Buddy
+        breed:
+          type: string
+          example: Golden Retriever
+        age:
+          type: integer
+          minimum: 0
+          example: 3
+        weight:
+          type: number
+          description: Weight in kg
+          example: 25.5
+        gender:
+          type: string
+          enum: [male, female, unknown]
+          example: male
+
+    CurrentStatus:
+      type: object
+      properties:
+        activity:
+          type: string
+          enum: [resting, walking, running, playing, eating, sleeping]
+          example: resting
+        heart_rate:
+          type: integer
+          example: 65
+        location:
+          type: string
+          description: Simplified location description
+          example: home
+        last_seen:
+          type: string
+          format: date-time
+          example: 2024-01-20T10:29:45Z
+        battery_level:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          example: 0.85
+
+    TimelineResponse:
+      type: object
+      properties:
+        timeline:
+          type: array
+          items:
+            $ref: '#/components/schemas/BehaviorEvent'
+        total_count:
+          type: integer
+          description: Total number of events available
+          example: 23
+        has_more:
+          type: boolean
+          description: Whether more events are available
+          example: false
+        pagination:
+          $ref: '#/components/schemas/PaginationInfo'
+
+    PaginationInfo:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 100
+        total_pages:
+          type: integer
+          example: 1
+
+    CarePlan:
+      type: object
+      properties:
+        pet_id:
+          type: string
+          example: pet_12345
+        care_plan:
+          $ref: '#/components/schemas/CarePlanDetails'
+        recommendations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Recommendation'
+        last_updated:
+          type: string
+          format: date-time
+          example: 2024-01-20T08:00:00Z
+
+    CarePlanDetails:
+      type: object
+      properties:
+        nutrition:
+          $ref: '#/components/schemas/NutritionPlan'
+        exercise:
+          $ref: '#/components/schemas/ExercisePlan'
+        health:
+          $ref: '#/components/schemas/HealthPlan'
+
+    NutritionPlan:
+      type: object
+      properties:
+        daily_calories:
+          type: integer
+          example: 1200
+        meal_frequency:
+          type: integer
+          example: 2
+        treats_allowed:
+          type: integer
+          example: 3
+        special_diet:
+          type: string
+          example: grain-free
+
+    ExercisePlan:
+      type: object
+      properties:
+        daily_minutes:
+          type: integer
+          example: 90
+        intensity:
+          type: string
+          enum: [low, moderate, high]
+          example: moderate
+        activities:
+          type: array
+          items:
+            type: string
+          example: [walk, fetch, swimming]
+
+    HealthPlan:
+      type: object
+      properties:
+        vet_checkup_due:
+          type: string
+          format: date
+          example: 2024-03-15
+        vaccinations_due:
+          type: array
+          items:
+            type: string
+          example: []
+        weight_target:
+          type: string
+          example: 25-27kg
+
+    Recommendation:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [exercise, nutrition, health, behavior]
+          example: exercise
+        priority:
+          type: string
+          enum: [low, medium, high, critical]
+          example: high
+        message:
+          type: string
+          example: Increase daily exercise by 15 minutes
+        reason:
+          type: string
+          example: Activity level below breed average
+        action_url:
+          type: string
+          format: uri
+          description: Optional URL for more information
+
+    UserFeedback:
+      type: object
+      required:
+        - event_id
+        - user_feedback
+      properties:
+        event_id:
+          type: string
+          description: ID of the behavioral event being reviewed
+          example: evt_abc123
+        user_feedback:
+          type: string
+          enum: [correct, incorrect, partially_correct]
+          description: User's assessment of the event accuracy
+          example: correct
+        confidence:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          description: User's confidence in their feedback
+          example: 0.95
+        notes:
+          type: string
+          maxLength: 500
+          description: Optional notes about the feedback
+          example: Dog was indeed playing with neighbor's dog
+        timestamp:
+          type: string
+          format: date-time
+          description: When feedback was provided (auto-generated if not provided)
+
+    FeedbackResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success, error]
+          example: success
+        feedback_id:
+          type: string
+          example: fb_xyz789
+        processed_at:
+          type: string
+          format: date-time
+          example: 2024-01-20T10:30:05Z
+
+    Alert:
+      type: object
+      properties:
+        alert_id:
+          type: string
+          example: alert_123
+        alert_type:
+          type: string
+          enum: [low_activity, high_heart_rate, temperature_abnormal, battery_low, location_fence]
+          example: low_activity
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+          example: medium
+        message:
+          type: string
+          example: Buddy has been inactive for 4 hours
+        timestamp:
+          type: string
+          format: date-time
+          example: 2024-01-20T10:30:00Z
+        acknowledged:
+          type: boolean
+          example: false
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/AlertAction'
+
+    AlertAction:
+      type: object
+      properties:
+        action_type:
+          type: string
+          enum: [acknowledge, dismiss, escalate, contact_vet]
+          example: acknowledge
+        label:
+          type: string
+          example: Mark as acknowledged
+        url:
+          type: string
+          format: uri
+          example: /alerts/alert_123/acknowledge
+
+    AlertsResponse:
+      type: object
+      properties:
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Alert'
+        total_count:
+          type: integer
+          example: 3
+        active_count:
+          type: integer
+          example: 2
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: VALIDATION_ERROR
+            message:
+              type: string
+              example: Invalid collar_id format
+            details:
+              type: object
+              description: Additional error details
+            request_id:
+              type: string
+              example: req_abc123
+            timestamp:
+              type: string
+              format: date-time
+              example: 2024-01-20T10:30:00Z
+
+  responses:
+    ValidationError:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Invalid collar_id format
+              details:
+                field: collar_id
+                expected: ^[A-Z]{2}-\d{3,6}$
+                received: invalid-id
+              request_id: req_abc123
+              timestamp: 2024-01-20T10:30:00Z
+
+    AuthenticationError:
+      description: Authentication failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: AUTHENTICATION_ERROR
+              message: Invalid or missing API key
+              request_id: req_abc123
+              timestamp: 2024-01-20T10:30:00Z
+
+    NotFoundError:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: NOT_FOUND
+              message: Collar not found
+              request_id: req_abc123
+              timestamp: 2024-01-20T10:30:00Z
+
+    RateLimitError:
+      description: Rate limit exceeded
+      headers:
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+          description: Request limit per time window
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+          description: Remaining requests in current window
+        X-RateLimit-Reset:
+          schema:
+            type: integer
+          description: Time when rate limit resets (Unix timestamp)
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds to wait before retrying
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: RATE_LIMIT_EXCEEDED
+              message: Rate limit exceeded. Try again later.
+              request_id: req_abc123
+              timestamp: 2024-01-20T10:30:00Z
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: INTERNAL_ERROR
+              message: An unexpected error occurred
+              request_id: req_abc123
+              timestamp: 2024-01-20T10:30:00Z
+
+tags:
+  - name: System
+    description: System health and status endpoints
+  - name: Data Ingestion
+    description: Endpoints for ingesting sensor data from pet collars
+  - name: Real-time Data
+    description: Real-time pet status and monitoring
+  - name: Analytics
+    description: Behavioral analysis and timeline data
+  - name: Recommendations
+    description: Personalized care plans and recommendations
+  - name: Feedback
+    description: User feedback for model improvement
+  - name: Alerts
+    description: Alert management and notifications
+
+externalDocs:
+  description: Complete API Documentation
+  url: https://github.com/kakashi3lite/Petty/docs/api/README.md
