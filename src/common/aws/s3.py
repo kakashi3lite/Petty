@@ -19,17 +19,34 @@ def _client():
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=0.2, max=2),
        retry=retry_if_exception_type(ClientError))
-def put_json(bucket: str, key: str, data: Dict[str, Any]) -> None:
-    """Put a JSON document with SSE-S3 and minimal retries.
+def put_json(bucket: str, key: str, payload: Dict[str, Any], *, kms_key_id: str = None, content_type: str = "application/json") -> None:
+    """Put a JSON document with SSE-S3 or SSE-KMS and minimal retries.
+
+    Args:
+        bucket: S3 bucket name
+        key: S3 object key
+        payload: JSON serializable data
+        kms_key_id: Optional KMS key ID for SSE-KMS encryption
+        content_type: Content-Type header (defaults to application/json)
 
     Retries only on AWS client errors. JSON is minified deterministically.
     """
-    body = json.dumps(data, separators=(",", ":"))
+    body = json.dumps(payload, separators=(",", ":"))
     logging.getLogger(__name__).debug("put_json bucket=%s key=%s bytes=%d", bucket, key, len(body))
-    _client().put_object(
-        Bucket=bucket,
-        Key=key,
-        Body=body.encode("utf-8"),
-        ContentType="application/json",
-        ServerSideEncryption="AES256",
-    )
+    
+    # Build put_object parameters
+    put_params = {
+        "Bucket": bucket,
+        "Key": key,
+        "Body": body.encode("utf-8"),
+        "ContentType": content_type,
+    }
+    
+    # Add encryption parameters
+    if kms_key_id:
+        put_params["ServerSideEncryption"] = "aws:kms"
+        put_params["SSEKMSKeyId"] = kms_key_id
+    else:
+        put_params["ServerSideEncryption"] = "AES256"
+    
+    _client().put_object(**put_params)

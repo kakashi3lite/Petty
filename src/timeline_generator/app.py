@@ -2,6 +2,15 @@ import json, os, logging, random, datetime
 from typing import List, Dict, Any
 from behavioral_interpreter.interpreter import BehavioralInterpreter
 
+# Import timestream query helper
+try:
+    import sys
+    sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+    from common.aws.timestream import query_last_24h
+    TIMESTREAM_AVAILABLE = True
+except ImportError:
+    TIMESTREAM_AVAILABLE = False
+
 # >>> PETTY:COPILOT:BEGIN:OBS-LOGGING
 # Use powertools logger/tracer/metrics; read POWERTOOLS_SERVICE_NAME + POWERTOOLS_LOG_LEVEL
 # Replace print() with logger.info/exception; add metrics.add_metric('Requests', 'Count', 1)
@@ -46,8 +55,20 @@ def lambda_handler(event, context):
     try:
         qs = event.get("queryStringParameters") or {}
         collar_id = qs.get("collar_id") or "SN-123"
-        # TODO: replace stub with Timestream query
-        series = _stub_last_24h(collar_id)
+        
+        # >>> PETTY:COPILOT:BEGIN:TS-QUERY
+        # If USE_STUB_DATA=true -> keep stub; else query last 24h asc and map to DATA_PROTOCOL dict shape
+        # Feed BehavioralInterpreter() and return timeline JSON
+        use_stub = os.getenv("USE_STUB_DATA", "true").lower() == "true"
+        
+        if use_stub or not TIMESTREAM_AVAILABLE:
+            # Keep stub data for development/testing
+            series = _stub_last_24h(collar_id)
+        else:
+            # Query last 24h from Timestream in ascending order
+            series = query_last_24h(collar_id)
+        # <<< PETTY:COPILOT:END:TS-QUERY
+        
         timeline = BehavioralInterpreter().analyze_timeline(series)
         return {"statusCode": 200, "body": json.dumps({"collar_id": collar_id, "timeline": timeline})}
     except Exception as e:
