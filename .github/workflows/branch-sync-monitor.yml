@@ -1,0 +1,257 @@
+name: Branch Sync Monitor
+
+on:
+  schedule:
+    # Run daily at 8:00 AM UTC
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+    # Allow manual triggering
+    inputs:
+      create_issue:
+        description: 'Create GitHub issue for out-of-sync branches'
+        required: false
+        default: 'true'
+        type: boolean
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  monitor-branch-sync:
+    runs-on: ubuntu-latest
+    name: Monitor Branch Synchronization
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for all branches
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-branch-sync
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # No external dependencies needed for our sync tools
+
+      - name: Fetch all remote branches
+        run: |
+          git fetch --all --prune
+          echo "Remote branches found:"
+          git branch -r | wc -l
+
+      - name: Run branch sync analysis
+        id: analysis
+        run: |
+          echo "Running branch sync analysis..."
+          python3 tools/branch_sync_summary.py --health > summary.txt
+          python3 tools/branch_sync_check.py --json analysis.json
+
+          # Extract key metrics
+          TOTAL_BRANCHES=$(git branch -r | grep -v 'origin/HEAD' | grep -v 'origin/main' | wc -l)
+          echo "total_branches=$TOTAL_BRANCHES" >> $GITHUB_OUTPUT
+
+          # Parse summary for needs attention count
+          if grep -q "Need attention:" summary.txt; then
+            NEEDS_ATTENTION=$(grep "Need attention:" summary.txt | grep -o '[0-9]\+' | head -1)
+          else
+            NEEDS_ATTENTION=0
+          fi
+          echo "needs_attention=$NEEDS_ATTENTION" >> $GITHUB_OUTPUT
+
+          # Check if analysis file was created
+          if [ -f analysis.json ]; then
+            echo "analysis_available=true" >> $GITHUB_OUTPUT
+          else
+            echo "analysis_available=false" >> $GITHUB_OUTPUT
+          fi
+
+          echo "Analysis completed:"
+          echo "- Total branches: $TOTAL_BRANCHES"
+          echo "- Need attention: $NEEDS_ATTENTION"
+
+      - name: Display summary
+        run: |
+          echo "## 📊 Branch Sync Summary"
+          cat summary.txt
+
+      - name: Check for existing sync issues
+        id: check_issues
+        if: steps.analysis.outputs.needs_attention > 0
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'branch-sync',
+              state: 'open'
+            });
+
+            const hasSyncIssue = issues.length > 0;
+            core.setOutput('has_existing_issue', hasSyncIssue);
+
+            if (hasSyncIssue) {
+              core.setOutput('existing_issue_number', issues[0].number);
+              console.log(`Found existing sync issue: #${issues[0].number}`);
+            }
+
+      - name: Create or update GitHub issue
+        if: |
+          steps.analysis.outputs.needs_attention > 0 &&
+          (github.event.inputs.create_issue == 'true' || github.event.inputs.create_issue == '') &&
+          steps.analysis.outputs.analysis_available == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const analysis = JSON.parse(fs.readFileSync('analysis.json', 'utf8'));
+            const summary = fs.readFileSync('summary.txt', 'utf8');
+
+            const totalBranches = analysis.total_branches;
+            const needsAttention = ${{ steps.analysis.outputs.needs_attention }};
+            const hasExistingIssue = ${{ steps.check_issues.outputs.has_existing_issue || false }};
+            const existingIssueNumber = ${{ steps.check_issues.outputs.existing_issue_number || 0 }};
+
+            // Build issue body
+            let body = `# 🔄 Branch Synchronization Report
+
+            **Generated:** ${analysis.analysis_date}
+            **Total Branches:** ${totalBranches}
+            **Need Attention:** ${needsAttention}
+
+            ## 📊 Summary
+
+            \`\`\`
+            ${summary}
+            \`\`\`
+
+            ## 📋 Detailed Status
+
+            `;
+
+            // Group branches by status
+            const statusGroups = {};
+            analysis.branches.forEach(branch => {
+              if (!statusGroups[branch.status]) {
+                statusGroups[branch.status] = [];
+              }
+              statusGroups[branch.status].push(branch);
+            });
+
+            // Add detailed sections for each status
+            const statusEmojis = {
+              'behind': '🔴',
+              'ahead': '🟡',
+              'diverged': '🟠',
+              'up-to-date': '🟢'
+            };
+
+            for (const [status, branches] of Object.entries(statusGroups)) {
+              if (branches.length === 0) continue;
+
+              const emoji = statusEmojis[status] || '⚪';
+              body += `### ${emoji} ${status.replace('-', ' ').toUpperCase()} (${branches.length})\n\n`;
+
+              if (status !== 'up-to-date') {
+                branches.forEach(branch => {
+                  body += `- **${branch.name}**\n`;
+                  body += `  - ${branch.description}\n`;
+                  body += `  - Last commit: \`${branch.last_commit_hash}\` by ${branch.last_commit_author}\n`;
+                  body += `  - Sync: \`${branch.sync_command}\`\n\n`;
+                });
+              } else {
+                body += `${branches.map(b => `- ${b.name}`).join('\n')}\n\n`;
+              }
+            }
+
+            body += `
+            ## 🔧 Recommended Actions
+
+            ### For Maintainers:
+            - Review branches that are behind and consider fast-forwarding them
+            - Check diverged branches for merge conflicts
+            - Consider creating PRs for branches that are ahead
+
+            ### Quick Commands:
+            \`\`\`bash
+            # Quick summary
+            make branches-summary
+
+            # Detailed analysis
+            make branches-check
+
+            # Safe bulk sync (behind branches only)
+            make branches-bulk-sync-behind
+
+            # Interactive bulk sync
+            make branches-bulk-sync
+            \`\`\`
+
+            ---
+            *This issue was automatically generated by the Branch Sync Monitor workflow.*
+            *To disable automatic issue creation, set the workflow input \`create_issue\` to \`false\`.*
+            `;
+
+            if (hasExistingIssue) {
+              // Update existing issue
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existingIssueNumber,
+                title: `🔄 Branch Sync Report - ${needsAttention} branches need attention`,
+                body: body
+              });
+              console.log(`Updated existing issue #${existingIssueNumber}`);
+            } else {
+              // Create new issue
+              const { data: issue } = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `🔄 Branch Sync Report - ${needsAttention} branches need attention`,
+                body: body,
+                labels: ['branch-sync', 'maintenance']
+              });
+              console.log(`Created new issue #${issue.number}`);
+            }
+
+      - name: Upload analysis artifacts
+        if: steps.analysis.outputs.analysis_available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: branch-sync-analysis
+          path: |
+            analysis.json
+            summary.txt
+          retention-days: 30
+
+      - name: Post summary to workflow
+        run: |
+          echo "## 🎯 Workflow Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total branches analyzed:** ${{ steps.analysis.outputs.total_branches }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branches needing attention:** ${{ steps.analysis.outputs.needs_attention }}" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.analysis.outputs.needs_attention }}" -gt 0 ]; then
+            echo "- **Action taken:** GitHub issue created/updated" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Status:** All branches are synchronized! 🎉" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Detailed Summary" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat summary.txt >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,21 @@
+{
+  "analysis_date": "2025-08-20T06:34:52.482718",
+  "main_branch": "main",
+  "total_branches": 1,
+  "summary": {
+    "up-to-date": 1
+  },
+  "branches": [
+    {
+      "name": "copilot/fix-6f71c154-79f4-416e-857d-63ab38100292",
+      "status": "up-to-date",
+      "commits_behind": 0,
+      "commits_ahead": 0,
+      "last_commit_date": "2025-08-20 06:26:30 +0000",
+      "last_commit_author": "copilot-swe-agent[bot]",
+      "last_commit_hash": "ebfecbd7",
+      "sync_command": "# No action needed - branch is up-to-date",
+      "description": "Branch is synchronized with main"
+    }
+  ]
+}
