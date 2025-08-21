@@ -1,6 +1,8 @@
 # Petty Production-Grade Makefile
 .PHONY: help bootstrap test lint security deploy clean docs \
-py.lint py.test sam.validate flutter.analyze flutter.test
+py.lint py.test sam.validate flutter.analyze flutter.test \
+branches-status branches-summary branches-sync-commands branches-status-json branches-fetch \
+branches-bulk-sync branches-bulk-sync-auto branches-bulk-sync-dry
 .DEFAULT_GOAL := help
 
 # Variables
@@ -226,3 +228,37 @@ env-prod: ## Set up production environment variables
 	@echo "export AWS_PROFILE=prod" > .env.prod
 	@echo "export AWS_REGION=us-east-1" >> .env.prod
 	@echo "export ENVIRONMENT=production" >> .env.prod
+
+# Branch management targets
+branches-status: ## Check branch synchronization status
+	@echo "$(BLUE)📊 Checking branch synchronization status...$(RESET)"
+	python tools/branch_sync_check.py
+
+branches-summary: ## Quick branch sync summary
+	@echo "$(BLUE)📋 Quick branch sync summary...$(RESET)"
+	python tools/branch_sync_summary.py
+
+branches-sync-commands: ## Generate commands to sync branches with main
+	@echo "$(BLUE)🔧 Generating branch sync commands...$(RESET)"
+	python tools/branch_sync_check.py --sync-commands
+
+branches-status-json: ## Output branch status as JSON
+	@echo "$(BLUE)📄 Outputting branch status as JSON...$(RESET)"
+	python tools/branch_sync_check.py --json
+
+branches-fetch: ## Fetch all remote branches
+	@echo "$(BLUE)📥 Fetching all remote branches...$(RESET)"
+	git remote set-branches origin '*'
+	git fetch --all
+
+branches-bulk-sync: ## Bulk sync branches behind main (interactive)
+	@echo "$(BLUE)⚡ Bulk sync branches behind main...$(RESET)"
+	python tools/bulk_branch_sync.py --interactive
+
+branches-bulk-sync-auto: ## Bulk sync branches behind main (automatic)
+	@echo "$(BLUE)⚡ Bulk sync branches behind main (auto)...$(RESET)"
+	python tools/bulk_branch_sync.py
+
+branches-bulk-sync-dry: ## Show what bulk sync would do (dry run)
+	@echo "$(BLUE)🔍 Bulk sync dry run...$(RESET)"
+	python tools/bulk_branch_sync.py --dry-run
