@@ -23,6 +23,7 @@ Extended docs live off‑page: [Consumer Overview](docs/CONSUMER_OVERVIEW.md) �
 * **NEW:** ✅ Comprehensive observability with AWS Lambda Powertools (metrics, logging, tracing)
 * **NEW:** ✅ API versioning strategy with `/v1/` endpoints and backward compatibility
 * **NEW:** ✅ Mobile app error handling with retry logic, exponential backoff, and circuit breakers
+* **NEW:** ✅ Enhanced dashboard UI with metrics cards, pet status, and activity timeline
 * **NEW:** ✅ Complete E2E testing suite covering user journeys, error scenarios, and performance
 * **NEW:** ✅ CloudWatch alarms for high error rates and latency with DLQ for failed invocations
 * **NEW:** ✅ Detailed production deployment guide and readiness validation tools

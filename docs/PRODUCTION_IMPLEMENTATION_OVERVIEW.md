@@ -42,6 +42,7 @@ This document provides a high-level overview of the production readiness impleme
 | Error Handling | [`mobile_app/lib/src/services/api_service.dart`](../mobile_app/lib/src/services/api_service.dart) | Retry logic with exponential backoff |
 | Circuit Breaker | [`mobile_app/lib/src/services/api_service.dart`](../mobile_app/lib/src/services/api_service.dart) | Circuit breaker pattern for resilience |
 | Adaptive Polling | [`mobile_app/lib/src/util/debounced_stream.dart`](../mobile_app/lib/src/util/debounced_stream.dart) | Debounced stream for efficient UI updates |
+| Dashboard Screens | [`mobile_app/lib/src/features/dashboard/presentation/`](../mobile_app/lib/src/features/dashboard/presentation/) | Multiple dashboard views with error handling and loading states |
 
 ### 6. Testing & Validation
 
