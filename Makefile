@@ -30,6 +30,31 @@ YELLOW := \033[33m
 BLUE := \033[34m
 RESET := \033[0m
 
+# Emojis with Windows console fallback
+ifeq ($(OS),Windows_NT)
+  # Windows console fallback - strip emojis for better compatibility
+  ROCKET := [Starting]
+  TEST := [Testing]
+  SEARCH := [Analyzing]
+  LOCK := [Security]
+  BOOKS := [Docs]
+  CHECK := [OK]
+  WARN := [Warning]
+  FAIL := [Error]
+  SUCCESS := [Success]
+else
+  # Unix/Linux/macOS - full emoji support
+  ROCKET := 🚀
+  TEST := 🧪
+  SEARCH := 🔎
+  LOCK := 🔒
+  BOOKS := 📚
+  CHECK := ✅
+  WARN := ⚠️
+  FAIL := ❌
+  SUCCESS := 🎉
+endif
+
 help: ## Show this help message
 	@echo "$(BLUE)Petty Production-Grade Build System$(RESET)"
 	@echo ""
@@ -37,7 +62,7 @@ help: ## Show this help message
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  $(GREEN)%-20s$(RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 bootstrap: ## Set up development environment
-	@echo "$(BLUE)🚀 Bootstrapping Petty development environment...$(RESET)"
+	@echo "$(BLUE)$(ROCKET) Bootstrapping Petty development environment...$(RESET)"
 	@echo "$(YELLOW)Creating Python virtual environment...$(RESET)"
 	$(PYTHON_BIN) -m venv $(VENV_PATH) || (echo "$(RED)Failed to create venv$(RESET)" && exit 1)
 	$(VENV_PIP) install --upgrade pip setuptools wheel
@@ -51,7 +76,7 @@ bootstrap: ## Set up development environment
 	sam --version || (echo "$(RED)Please install AWS SAM CLI$(RESET)" && exit 1)
 	@echo "$(YELLOW)Creating secrets baseline...$(RESET)"
 	$(VENV_PY) -m detect_secrets scan --baseline .secrets.baseline || touch .secrets.baseline
-	@echo "$(GREEN)✅ Bootstrap complete!$(RESET)"
+	@echo "$(GREEN)$(CHECK) Bootstrap complete!$(RESET)"
 
 clean: ## Clean build artifacts and caches
 	@echo "$(YELLOW)🧹 Cleaning build artifacts...$(RESET)"
@@ -60,7 +85,7 @@ clean: ## Clean build artifacts and caches
 	rm -rf src/**/__pycache__/ tests/**/__pycache__/
 	cd $(FLUTTER_PATH) && flutter clean
 	sam build --clean || true
-	@echo "$(GREEN)✅ Clean complete!$(RESET)"
+	@echo "$(GREEN)$(CHECK) Clean complete!$(RESET)"
 
 lint: ## Run code linting and formatting
 	@echo "$(BLUE)🔍 Running linting and formatting...$(RESET)"
@@ -70,7 +95,7 @@ lint: ## Run code linting and formatting
 	$(VENV_PY) -m mypy src/ tests/
 	@echo "$(YELLOW)Flutter linting...$(RESET)"
 	cd $(FLUTTER_PATH) && dart format . && flutter analyze
-	@echo "$(GREEN)✅ Linting complete!$(RESET)"
+	@echo "$(GREEN)$(CHECK) Linting complete!$(RESET)"
 
 # --- Granular convenience targets (Python / SAM / Flutter) ---
 py.lint: ## Python lint + type check only
@@ -80,23 +105,23 @@ py.lint: ## Python lint + type check only
 	$(VENV_PY) -m mypy src/ tests/
 
 py.test: ## Python tests only
-	@echo "$(BLUE)🧪 Python tests (plugin autoload disabled)...$(RESET)"
+	@echo "$(BLUE)$(TEST) Python tests (plugin autoload disabled)...$(RESET)"
 	$(PYTEST_ENV) $(VENV_PY) -m pytest tests/ -v --tb=short
 
 sam.validate: ## Validate SAM template only
-	@echo "$(BLUE)🧪 Validating SAM template...$(RESET)"
+	@echo "$(BLUE)$(TEST) Validating SAM template...$(RESET)"
 	sam validate --lint
 
 flutter.analyze: ## Run Flutter analyzer
-	@echo "$(BLUE)🔎 Flutter analyze...$(RESET)"
+	@echo "$(BLUE)$(SEARCH) Flutter analyze...$(RESET)"
 	cd $(FLUTTER_PATH) && flutter analyze
 
 flutter.test: ## Run Flutter tests only
-	@echo "$(BLUE)🧪 Flutter tests...$(RESET)"
+	@echo "$(BLUE)$(TEST) Flutter tests...$(RESET)"
 	cd $(FLUTTER_PATH) && flutter test
 
 security: ## Run security checks
-	@echo "$(BLUE)🔒 Running security checks...$(RESET)"
+	@echo "$(BLUE)$(LOCK) Running security checks...$(RESET)"
 	@echo "$(YELLOW)Python security scanning...$(RESET)"
 	$(VENV_PY) -m bandit -r src/ -f json -o security-report.json || true
 	$(VENV_PY) -m safety check --json --output safety-report.json || true
@@ -104,10 +129,10 @@ security: ## Run security checks
 	$(VENV_PY) -m detect_secrets scan --baseline .secrets.baseline || true
 	@echo "$(YELLOW)Dependency scanning...$(RESET)"
 	$(VENV_PY) -m pip_audit --format=json --output=audit-report.json || true
-	@echo "$(GREEN)✅ Security checks complete!$(RESET)"
+	@echo "$(GREEN)$(CHECK) Security checks complete!$(RESET)"
 
 test: ## Run all tests
-	@echo "$(BLUE)🧪 Running tests...$(RESET)"
+	@echo "$(BLUE)$(TEST) Running tests...$(RESET)"
 	@echo "$(YELLOW)Python unit tests...$(RESET)"
 	$(PYTEST_ENV) $(VENV_PY) -m pytest tests/ -v --tb=short
 	@echo "$(YELLOW)Property-based tests...$(RESET)"
@@ -116,7 +141,7 @@ test: ## Run all tests
 	$(PYTEST_ENV) $(VENV_PY) -m pytest tests/ -m "integration" -v
 	@echo "$(YELLOW)Flutter tests...$(RESET)"
 	cd $(FLUTTER_PATH) && flutter test
-	@echo "$(GREEN)✅ All tests passed!$(RESET)"
+	@echo "$(GREEN)$(CHECK) All tests passed!$(RESET)"
 
 test-fast: ## Run fast tests only
 	@echo "$(BLUE)⚡ Running fast tests...$(RESET)"
@@ -130,23 +155,23 @@ build: ## Build all artifacts
 	sam build --parallel
 	@echo "$(YELLOW)Building Flutter app...$(RESET)"
 	cd $(FLUTTER_PATH) && flutter build apk --debug
-	@echo "$(GREEN)✅ Build complete!$(RESET)"
+	@echo "$(GREEN)$(CHECK) Build complete!$(RESET)"
 
 deploy-dev: ## Deploy to development environment
-	@echo "$(BLUE)🚀 Deploying to development...$(RESET)"
+	@echo "$(BLUE)$(ROCKET) Deploying to development...$(RESET)"
 	@$(MAKE) security
 	@$(MAKE) test-fast
 	sam deploy --config-env dev --parameter-overrides Environment=dev
 
 deploy-staging: ## Deploy to staging environment
-	@echo "$(BLUE)🚀 Deploying to staging...$(RESET)"
+	@echo "$(BLUE)$(ROCKET) Deploying to staging...$(RESET)"
 	@$(MAKE) security
 	@$(MAKE) test
 	sam deploy --config-env staging --parameter-overrides Environment=staging
 
 deploy-prod: ## Deploy to production environment
-	@echo "$(BLUE)🚀 Deploying to production...$(RESET)"
-	@echo "$(RED)⚠️  Production deployment requires manual approval$(RESET)"
+	@echo "$(BLUE)$(ROCKET) Deploying to production...$(RESET)"
+	@echo "$(RED)$(WARN) Production deployment requires manual approval$(RESET)"
 	@read -p "Are you sure you want to deploy to production? [y/N] " -n 1 -r; \
 	echo; \
 	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
@@ -158,19 +183,19 @@ deploy-prod: ## Deploy to production environment
 	fi
 
 docs: ## Generate documentation
-	@echo "$(BLUE)📚 Generating documentation...$(RESET)"
+	@echo "$(BLUE)$(BOOKS) Generating documentation...$(RESET)"
 	$(VENV_PY) -m pdoc src/ --output-dir docs/api/
-	@echo "$(GREEN)✅ Documentation generated!$(RESET)"
+	@echo "$(GREEN)$(CHECK) Documentation generated!$(RESET)"
 
 validate: ## Validate infrastructure and code
-	@echo "$(BLUE)✅ Validating project...$(RESET)"
+	@echo "$(BLUE)$(CHECK) Validating project...$(RESET)"
 	@echo "$(YELLOW)Validating SAM template...$(RESET)"
 	sam validate --lint
 	@echo "$(YELLOW)Validating Python syntax...$(RESET)"
 	$(VENV_PY) -m py_compile src/**/*.py || true
 	@echo "$(YELLOW)Validating Flutter code...$(RESET)"
 	cd $(FLUTTER_PATH) && flutter analyze --fatal-infos
-	@echo "$(GREEN)✅ Validation complete!$(RESET)"
+	@echo "$(GREEN)$(CHECK) Validation complete!$(RESET)"
 
 simulate: ## Run local simulation
 	@echo "$(BLUE)🎭 Starting local simulation...$(RESET)"
