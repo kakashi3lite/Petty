@@ -7,33 +7,135 @@ import json
 import os
 import time
 import uuid
+import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, Callable, List
 from functools import wraps
 from contextlib import contextmanager
-from aws_lambda_powertools import Logger, Tracer, Metrics
-from aws_lambda_powertools.logging import correlation_paths
-from aws_lambda_powertools.metrics import MetricUnit
-from aws_lambda_powertools.tracing import Tracer as TracerClass
-import boto3
-from botocore.exceptions import ClientError
 
-# Initialize AWS Lambda Powertools
-logger = Logger(
-    service=os.getenv("SERVICE_NAME", "petty-api"),
-    level=os.getenv("LOG_LEVEL", "INFO"),
-    sampling_rate=float(os.getenv("LOG_SAMPLING_RATE", "0.1"))
-)
+# Auto-detect fallback when powertools absent
+HAS_POWERTOOLS = False
+try:
+    from aws_lambda_powertools import Logger, Tracer, Metrics
+    from aws_lambda_powertools.logging import correlation_paths
+    from aws_lambda_powertools.metrics import MetricUnit
+    from aws_lambda_powertools.tracing import Tracer as TracerClass
+    HAS_POWERTOOLS = True
+except ImportError:
+    logging.warning("AWS Lambda Powertools not available - using fallback implementation")
 
-tracer = Tracer(
-    service=os.getenv("SERVICE_NAME", "petty-api"),
-    disabled=os.getenv("DISABLE_TRACING", "false").lower() == "true"
-)
+# Boto3 for when powertools is not available but AWS SDK is
+HAS_BOTO3 = False
+try:
+    import boto3
+    from botocore.exceptions import ClientError
+    HAS_BOTO3 = True
+except ImportError:
+    logging.warning("Boto3 not available - using stub implementation")
 
-metrics = Metrics(
-    namespace=os.getenv("METRICS_NAMESPACE", "Petty"),
-    service=os.getenv("SERVICE_NAME", "petty-api")
-)
+# Initialize AWS Lambda Powertools with fallback
+if HAS_POWERTOOLS:
+    logger = Logger(
+        service=os.getenv("SERVICE_NAME", "petty-api"),
+        level=os.getenv("LOG_LEVEL", "INFO"),
+        sampling_rate=float(os.getenv("LOG_SAMPLING_RATE", "0.1"))
+    )
+
+    tracer = Tracer(
+        service=os.getenv("SERVICE_NAME", "petty-api"),
+        disabled=os.getenv("DISABLE_TRACING", "false").lower() == "true"
+    )
+
+    metrics = Metrics(
+        namespace=os.getenv("METRICS_NAMESPACE", "Petty"),
+        service=os.getenv("SERVICE_NAME", "petty-api")
+    )
+else:
+    # Fallback implementations
+    import logging as fallback_logging
+    
+    class FallbackLogger:
+        def __init__(self, service: str = "petty-api", level: str = "INFO"):
+            self.service = service
+            self.logger = fallback_logging.getLogger(service)
+            self.logger.setLevel(getattr(fallback_logging, level.upper(), fallback_logging.INFO))
+            self.correlation_id = None
+            
+        def set_correlation_id(self, correlation_id: str):
+            self.correlation_id = correlation_id
+            
+        def info(self, message: str, extra: Optional[Dict] = None):
+            if extra and self.correlation_id:
+                extra["correlation_id"] = self.correlation_id
+            self.logger.info(message, extra=extra or {})
+            
+        def warning(self, message: str, extra: Optional[Dict] = None):
+            if extra and self.correlation_id:
+                extra["correlation_id"] = self.correlation_id
+            self.logger.warning(message, extra=extra or {})
+            
+        def error(self, message: str, extra: Optional[Dict] = None):
+            if extra and self.correlation_id:
+                extra["correlation_id"] = self.correlation_id
+            self.logger.error(message, extra=extra or {})
+            
+        def inject_lambda_context(self, **kwargs):
+            def decorator(func):
+                return func
+            return decorator
+    
+    class FallbackTracer:
+        def __init__(self, service: str = "petty-api", disabled: bool = False):
+            self.service = service
+            self.disabled = disabled
+            
+        def capture_lambda_handler(self, func):
+            return func
+            
+        def capture(self, name: str):
+            class StubContext:
+                def __enter__(self):
+                    return None
+                def __exit__(self, exc_type, exc_val, exc_tb):
+                    pass
+            return StubContext()
+    
+    class FallbackMetrics:
+        def __init__(self, namespace: str = "Petty", service: str = "petty-api"):
+            self.namespace = namespace
+            self.service = service
+            
+        def add_metric(self, name: str, unit: str, value: float):
+            pass
+            
+        def log_metrics(self, **kwargs):
+            def decorator(func):
+                return func
+            return decorator
+    
+    # Create fallback instances
+    logger = FallbackLogger(
+        service=os.getenv("SERVICE_NAME", "petty-api"),
+        level=os.getenv("LOG_LEVEL", "INFO")
+    )
+    
+    tracer = FallbackTracer(
+        service=os.getenv("SERVICE_NAME", "petty-api"),
+        disabled=os.getenv("DISABLE_TRACING", "false").lower() == "true"
+    )
+    
+    metrics = FallbackMetrics(
+        namespace=os.getenv("METRICS_NAMESPACE", "Petty"),
+        service=os.getenv("SERVICE_NAME", "petty-api")
+    )
+    
+    # Define fallback metric units if not available
+    class MetricUnit:
+        Milliseconds = "Milliseconds"
+        Count = "Count"
+        Seconds = "Seconds"
+        Bytes = "Bytes"
+        Percent = "Percent"
 
 class ObservabilityManager:
     """Centralized observability management for the Petty application"""
@@ -361,25 +463,26 @@ health_checker = HealthChecker()
 # Lambda handler decorators for automatic observability
 def lambda_handler_with_observability(func: Callable) -> Callable:
     """Complete observability wrapper for Lambda handlers"""
-    @logger.inject_lambda_context(correlation_id_path=correlation_paths.API_GATEWAY_HTTP)
-    @tracer.capture_lambda_handler
-    @metrics.log_metrics(capture_cold_start_metric=True)
-    @wraps(func)
-    def wrapper(event, context):
-        # Extract correlation ID from API Gateway
-        correlation_id = event.get('headers', {}).get('x-correlation-id', str(uuid.uuid4()))
-        obs_manager.set_correlation_id(correlation_id)
-        
-        # Log request
-        logger.info(
-            "Lambda invocation started",
-            extra={
-                "event_type": "lambda_start",
-                "function_name": context.function_name if context else "unknown",
-                "correlation_id": correlation_id,
-                "cold_start": getattr(context, 'cold_start', False) if context else False
-            }
-        )
+    if HAS_POWERTOOLS:
+        @logger.inject_lambda_context(correlation_id_path=correlation_paths.API_GATEWAY_HTTP)
+        @tracer.capture_lambda_handler
+        @metrics.log_metrics(capture_cold_start_metric=True)
+        @wraps(func)
+        def wrapper(event, context):
+            # Extract correlation ID from API Gateway
+            correlation_id = event.get('headers', {}).get('x-correlation-id', str(uuid.uuid4()))
+            obs_manager.set_correlation_id(correlation_id)
+            
+            # Log request
+            logger.info(
+                "Lambda invocation started",
+                extra={
+                    "event_type": "lambda_start",
+                    "function_name": context.function_name if context else "unknown",
+                    "correlation_id": correlation_id,
+                    "cold_start": getattr(context, 'cold_start', False) if context else False
+                }
+            )
         
         try:
             result = func(event, context)
@@ -402,6 +505,46 @@ def lambda_handler_with_observability(func: Callable) -> Callable:
                 }
             )
             raise
+    else:
+        # Fallback implementation without powertools decorators
+        @wraps(func)
+        def wrapper(event, context):
+            # Extract correlation ID from API Gateway
+            correlation_id = event.get('headers', {}).get('x-correlation-id', str(uuid.uuid4()))
+            obs_manager.set_correlation_id(correlation_id)
+            
+            # Log request
+            logger.info(
+                "Lambda invocation started",
+                extra={
+                    "event_type": "lambda_start",
+                    "function_name": context.function_name if context else "unknown",
+                    "correlation_id": correlation_id,
+                    "cold_start": getattr(context, 'cold_start', False) if context else False
+                }
+            )
+        
+            try:
+                result = func(event, context)
+                
+                obs_manager.log_business_event(
+                    "lambda_success",
+                    function_name=context.function_name if context else "unknown"
+                )
+                
+                return result
+                
+            except Exception as e:
+                obs_manager.log_security_event(
+                    "lambda_error",
+                    "high",
+                    {
+                        "function_name": context.function_name if context else "unknown",
+                        "error": str(e),
+                        "event_source": event.get('source', 'unknown') if isinstance(event, dict) else 'unknown'
+                    }
+                )
+                raise
     
     return wrapper
 

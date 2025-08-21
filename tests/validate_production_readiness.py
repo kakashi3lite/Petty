@@ -419,7 +419,7 @@ class ProductionReadinessValidator:
                 "PublicAccessBlockConfiguration",
                 "secretsmanager:GetSecretValue",
                 "CloudWatch",
-                "X-Ray",
+                "Tracing: Active",
                 "DeadLetterQueue"
             ]
             
