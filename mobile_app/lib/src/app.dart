@@ -11,7 +11,7 @@ class PettyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final router = GoRouter(
-      initialLocation: "/",
+      initialLocation: "/pet-dashboard",
       routes: [
         GoRoute(path: "/", builder: (_, __) => const DashboardScreen()),
         GoRoute(path: "/pet-dashboard", builder: (_, __) => const PetDashboardScreen()),

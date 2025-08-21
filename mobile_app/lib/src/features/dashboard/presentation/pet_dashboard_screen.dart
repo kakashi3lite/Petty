@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../../design_system.dart';
-import '../../../components.dart';
+import 'package:petty/design_system.dart';
+import 'package:petty/components.dart';
 import 'dart:async';
 
 class PetDashboardScreen extends StatefulWidget {
