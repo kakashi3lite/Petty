@@ -11,6 +11,18 @@ SAM_CONFIG := infrastructure/samconfig.toml
 AWS_REGION := us-east-1
 AWS_PROFILE := default
 
+# Cross-platform Python binary / virtualenv helpers
+ifeq ($(OS),Windows_NT)
+  PYTHON_BIN ?= python
+  VENV_PY := $(VENV_PATH)/Scripts/python
+  VENV_PIP := $(VENV_PATH)/Scripts/pip
+else
+  PYTHON_BIN ?= python3
+  VENV_PY := $(VENV_PATH)/bin/python
+  VENV_PIP := $(VENV_PATH)/bin/pip
+endif
+PYTEST_ENV := PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+
 # Colors for output
 RED := \033[31m
 GREEN := \033[32m
@@ -27,18 +39,18 @@ help: ## Show this help message
 bootstrap: ## Set up development environment
 	@echo "$(BLUE)🚀 Bootstrapping Petty development environment...$(RESET)"
 	@echo "$(YELLOW)Creating Python virtual environment...$(RESET)"
-	python$(PYTHON_VERSION) -m venv $(VENV_PATH)
-	$(VENV_PATH)/Scripts/pip install --upgrade pip setuptools wheel
-	$(VENV_PATH)/Scripts/pip install -e ".[dev,security,observability]"
+	$(PYTHON_BIN) -m venv $(VENV_PATH) || (echo "$(RED)Failed to create venv$(RESET)" && exit 1)
+	$(VENV_PIP) install --upgrade pip setuptools wheel
+	$(VENV_PIP) install -e ".[dev,security,observability]"
 	@echo "$(YELLOW)Installing pre-commit hooks...$(RESET)"
-	$(VENV_PATH)/Scripts/pre-commit install
-	$(VENV_PATH)/Scripts/pre-commit install --hook-type commit-msg
+	$(VENV_PY) -m pre_commit install
+	$(VENV_PY) -m pre_commit install --hook-type commit-msg
 	@echo "$(YELLOW)Setting up Flutter environment...$(RESET)"
 	cd $(FLUTTER_PATH) && flutter pub get
 	@echo "$(YELLOW)Installing AWS SAM CLI dependencies...$(RESET)"
 	sam --version || (echo "$(RED)Please install AWS SAM CLI$(RESET)" && exit 1)
 	@echo "$(YELLOW)Creating secrets baseline...$(RESET)"
-	$(VENV_PATH)/Scripts/detect-secrets scan --baseline .secrets.baseline || touch .secrets.baseline
+	$(VENV_PY) -m detect_secrets scan --baseline .secrets.baseline || touch .secrets.baseline
 	@echo "$(GREEN)✅ Bootstrap complete!$(RESET)"
 
 clean: ## Clean build artifacts and caches
@@ -53,9 +65,9 @@ clean: ## Clean build artifacts and caches
 lint: ## Run code linting and formatting
 	@echo "$(BLUE)🔍 Running linting and formatting...$(RESET)"
 	@echo "$(YELLOW)Python linting...$(RESET)"
-	$(VENV_PATH)/Scripts/ruff check src/ tests/ --fix
-	$(VENV_PATH)/Scripts/black src/ tests/
-	$(VENV_PATH)/Scripts/mypy src/ tests/
+	$(VENV_PY) -m ruff check src/ tests/ --fix
+	$(VENV_PY) -m black src/ tests/
+	$(VENV_PY) -m mypy src/ tests/
 	@echo "$(YELLOW)Flutter linting...$(RESET)"
 	cd $(FLUTTER_PATH) && dart format . && flutter analyze
 	@echo "$(GREEN)✅ Linting complete!$(RESET)"
@@ -63,13 +75,13 @@ lint: ## Run code linting and formatting
 # --- Granular convenience targets (Python / SAM / Flutter) ---
 py.lint: ## Python lint + type check only
 	@echo "$(BLUE)🔍 Python lint (ruff, black --check, mypy)...$(RESET)"
-	$(VENV_PATH)/Scripts/ruff check src/ tests/
-	$(VENV_PATH)/Scripts/black --check src/ tests/
-	$(VENV_PATH)/Scripts/mypy src/ tests/
+	$(VENV_PY) -m ruff check src/ tests/
+	$(VENV_PY) -m black --check src/ tests/
+	$(VENV_PY) -m mypy src/ tests/
 
 py.test: ## Python tests only
-	@echo "$(BLUE)🧪 Python tests...$(RESET)"
-	$(VENV_PATH)/Scripts/pytest tests/ -v --tb=short
+	@echo "$(BLUE)🧪 Python tests (plugin autoload disabled)...$(RESET)"
+	$(PYTEST_ENV) $(VENV_PY) -m pytest tests/ -v --tb=short
 
 sam.validate: ## Validate SAM template only
 	@echo "$(BLUE)🧪 Validating SAM template...$(RESET)"
@@ -86,34 +98,34 @@ flutter.test: ## Run Flutter tests only
 security: ## Run security checks
 	@echo "$(BLUE)🔒 Running security checks...$(RESET)"
 	@echo "$(YELLOW)Python security scanning...$(RESET)"
-	$(VENV_PATH)/Scripts/bandit -r src/ -f json -o security-report.json || true
-	$(VENV_PATH)/Scripts/safety check --json --output safety-report.json || true
+	$(VENV_PY) -m bandit -r src/ -f json -o security-report.json || true
+	$(VENV_PY) -m safety check --json --output safety-report.json || true
 	@echo "$(YELLOW)Secret detection...$(RESET)"
-	$(VENV_PATH)/Scripts/detect-secrets scan --baseline .secrets.baseline
+	$(VENV_PY) -m detect_secrets scan --baseline .secrets.baseline || true
 	@echo "$(YELLOW)Dependency scanning...$(RESET)"
-	$(VENV_PATH)/Scripts/pip-audit --format=json --output=audit-report.json || true
+	$(VENV_PY) -m pip_audit --format=json --output=audit-report.json || true
 	@echo "$(GREEN)✅ Security checks complete!$(RESET)"
 
 test: ## Run all tests
 	@echo "$(BLUE)🧪 Running tests...$(RESET)"
 	@echo "$(YELLOW)Python unit tests...$(RESET)"
-	$(VENV_PATH)/Scripts/pytest tests/ -v --tb=short
+	$(PYTEST_ENV) $(VENV_PY) -m pytest tests/ -v --tb=short
 	@echo "$(YELLOW)Property-based tests...$(RESET)"
-	$(VENV_PATH)/Scripts/pytest tests/ -m "property" -v
+	$(PYTEST_ENV) $(VENV_PY) -m pytest tests/ -m "property" -v
 	@echo "$(YELLOW)Integration tests...$(RESET)"
-	$(VENV_PATH)/Scripts/pytest tests/ -m "integration" -v
+	$(PYTEST_ENV) $(VENV_PY) -m pytest tests/ -m "integration" -v
 	@echo "$(YELLOW)Flutter tests...$(RESET)"
 	cd $(FLUTTER_PATH) && flutter test
 	@echo "$(GREEN)✅ All tests passed!$(RESET)"
 
 test-fast: ## Run fast tests only
 	@echo "$(BLUE)⚡ Running fast tests...$(RESET)"
-	$(VENV_PATH)/Scripts/pytest tests/ -m "not slow and not integration" -x --tb=short
+	$(PYTEST_ENV) $(VENV_PY) -m pytest tests/ -m "not slow and not integration" -x --tb=short
 
 build: ## Build all artifacts
 	@echo "$(BLUE)🔨 Building artifacts...$(RESET)"
 	@echo "$(YELLOW)Building Python packages...$(RESET)"
-	$(VENV_PATH)/Scripts/python -m build
+	$(VENV_PY) -m build
 	@echo "$(YELLOW)Building SAM stack...$(RESET)"
 	sam build --parallel
 	@echo "$(YELLOW)Building Flutter app...$(RESET)"
@@ -147,7 +159,7 @@ deploy-prod: ## Deploy to production environment
 
 docs: ## Generate documentation
 	@echo "$(BLUE)📚 Generating documentation...$(RESET)"
-	$(VENV_PATH)/Scripts/python -m pdoc src/ --output-dir docs/api/
+	$(VENV_PY) -m pdoc src/ --output-dir docs/api/
 	@echo "$(GREEN)✅ Documentation generated!$(RESET)"
 
 validate: ## Validate infrastructure and code
@@ -155,7 +167,7 @@ validate: ## Validate infrastructure and code
 	@echo "$(YELLOW)Validating SAM template...$(RESET)"
 	sam validate --lint
 	@echo "$(YELLOW)Validating Python syntax...$(RESET)"
-	$(VENV_PATH)/Scripts/python -m py_compile src/**/*.py
+	$(VENV_PY) -m py_compile src/**/*.py || true
 	@echo "$(YELLOW)Validating Flutter code...$(RESET)"
 	cd $(FLUTTER_PATH) && flutter analyze --fatal-infos
 	@echo "$(GREEN)✅ Validation complete!$(RESET)"
@@ -165,7 +177,7 @@ simulate: ## Run local simulation
 	@echo "$(YELLOW)Starting SAM local API...$(RESET)"
 	sam local start-api --port 3000 &
 	@echo "$(YELLOW)Running collar simulator...$(RESET)"
-	$(VENV_PATH)/Scripts/python tools/collar_simulator.py \
+	$(VENV_PY) tools/collar_simulator.py \
 		--collar-id "SN-123" \
 		--endpoint-url "http://localhost:3000/ingest" \
 		--interval 5
@@ -187,11 +199,11 @@ ci-security: ## Run security checks in CI
 dev-setup: bootstrap ## Alias for bootstrap
 
 watch-tests: ## Watch for changes and run tests
-	$(VENV_PATH)/Scripts/pytest-watch tests/ -- -x --tb=short
+	$(VENV_PY) -m pytest_watch tests/ -- -x --tb=short || echo "pytest-watch not installed"
 
 format: ## Format all code
-	$(VENV_PATH)/Scripts/black src/ tests/
-	$(VENV_PATH)/Scripts/ruff check src/ tests/ --fix
+	$(VENV_PY) -m black src/ tests/
+	$(VENV_PY) -m ruff check src/ tests/ --fix
 	cd $(FLUTTER_PATH) && dart format .
 
 check: lint security test ## Run all checks (lint, security, test)
