@@ -1,16 +1,112 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Petty serverless stack
+Description: Petty serverless stack - Production Ready
+
+Parameters:
+  Environment:
+    Type: String
+    Default: development
+    AllowedValues: [development, staging, production]
+    Description: Environment name for resource naming
 
 Globals:
   Function:
     Timeout: 15
     Runtime: python3.11
+    Environment:
+      Variables:
+        SERVICE_NAME: petty-api
+        ENVIRONMENT: !Ref Environment
+        SERVICE_VERSION: '0.1.0'
+        METRICS_NAMESPACE: Petty
+        LOG_LEVEL: !If [IsProduction, INFO, DEBUG]
+    Layers:
+      - !Ref PettyCommonLayer
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, production]
 
 Resources:
+  # Common Lambda layer with shared dependencies
+  PettyCommonLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub petty-common-${Environment}
+      Description: Common dependencies for Petty Lambda functions
+      ContentUri: ../src/common/
+      CompatibleRuntimes:
+        - python3.11
+      RetentionPolicy: Retain
+
+  # Secrets for JWT keys
+  JWTKeysSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub petty/jwt-keys-${Environment}
+      Description: JWT signing keys for Petty API authentication
+      GenerateSecretString:
+        SecretStringTemplate: '{"algorithm": "RS256"}'
+        GenerateStringKey: 'private_key'
+        IncludeSpace: false
+        ExcludeCharacters: '"@/\'
+        PasswordLength: 2048
+      Tags:
+        - Key: Service
+          Value: Petty
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: SecretType
+          Value: jwt_keys
+
+  # Secrets for database credentials
+  DatabaseSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub petty/db-petty-${Environment}
+      Description: Database credentials for Petty
+      GenerateSecretString:
+        SecretStringTemplate: !Sub |
+          {
+            "username": "petty_user",
+            "host": "${TimestreamDatabase}",
+            "port": "443",
+            "database": "PettyDB"
+          }
+        GenerateStringKey: 'password'
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\'
+      Tags:
+        - Key: Service
+          Value: Petty
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Encryption keys for PII data
+  PIIEncryptionSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub petty/encryption-keys/pii-${Environment}
+      Description: Encryption key for PII data protection
+      GenerateSecretString:
+        SecretStringTemplate: '{"purpose": "pii_encryption"}'
+        GenerateStringKey: 'key'
+        PasswordLength: 64
+        ExcludeCharacters: '"@/\'
+      Tags:
+        - Key: Service
+          Value: Petty
+        - Key: Environment
+          Value: !Ref Environment
+
   TimestreamDatabase:
     Type: AWS::Timestream::Database
-    Properties: { DatabaseName: PettyDB }
+    Properties:
+      DatabaseName: !Sub PettyDB-${Environment}
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: Petty
 
   TimestreamTable:
     Type: AWS::Timestream::Table
@@ -19,41 +115,89 @@ Resources:
       TableName: CollarMetrics
       RetentionProperties:
         MemoryStoreRetentionPeriodInHours: 24
-        MagneticStoreRetentionPeriodInDays: 30
+        MagneticStoreRetentionPeriodInDays: !If [IsProduction, 90, 30]
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: Petty
 
   FeedbackDataBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: petty-feedback-data
+      BucketName: !Sub petty-feedback-data-${Environment}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: !If [IsProduction, Enabled, Suspended]
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: Petty
 
+  # Enhanced IAM role for data processor with secrets access
   DataProcessorRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub PettyDataProcessor-${Environment}
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal: { Service: lambda.amazonaws.com }
             Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
       Policies:
-        - PolicyName: PettyDataProcessor
+        - PolicyName: PettyDataProcessorPolicy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
                   - timestream:WriteRecords
-                Resource: "*"
+                  - timestream:DescribeTable
+                Resource: !Sub "${TimestreamTable}/*"
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref JWTKeysSecret
+                  - !Ref DatabaseSecret
+                  - !Ref PIIEncryptionSecret
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/petty/${Environment}/*"
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: "*"
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: "*"
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: Petty
 
   DataProcessorFunction:
     Type: AWS::Serverless::Function
     Properties:
+      FunctionName: !Sub petty-data-processor-${Environment}
       CodeUri: src/data_processor/
       Handler: app.lambda_handler
       Role: !GetAtt DataProcessorRole.Arn
@@ -61,34 +205,80 @@ Resources:
         Variables:
           TIMESTREAM_DB: !Ref TimestreamDatabase
           TIMESTREAM_TABLE: !Ref TimestreamTable
+          JWT_KEYS_SECRET: !Ref JWTKeysSecret
+          DATABASE_SECRET: !Ref DatabaseSecret
+          PII_ENCRYPTION_SECRET: !Ref PIIEncryptionSecret
+      DeadLetterQueue:
+        Type: SQS
+        TargetArn: !GetAtt DeadLetterQueue.Arn
+      ReservedConcurrencyLimit: !If [IsProduction, 100, 10]
+      Tracing: Active
       Events:
-        Ingest:
+        # V1 API endpoints
+        IngestV1:
+          Type: HttpApi
+          Properties:
+            Path: /v1/ingest
+            Method: POST
+            Auth:
+              ApiKeyRequired: false
+        PetPlanV1:
+          Type: HttpApi
+          Properties:
+            Path: /v1/pet-plan
+            Method: GET
+        RealtimeV1:
+          Type: HttpApi
+          Properties:
+            Path: /v1/realtime
+            Method: GET
+        # Legacy endpoints (will be deprecated)
+        IngestLegacy:
           Type: HttpApi
           Properties:
             Path: /ingest
             Method: POST
-        PetPlan:
+        PetPlanLegacy:
           Type: HttpApi
           Properties:
             Path: /pet-plan
             Method: GET
-        Realtime:
+        RealtimeLegacy:
           Type: HttpApi
           Properties:
             Path: /realtime
             Method: GET
+      Tags:
+        Environment: !Ref Environment
+        Service: Petty
+
+  # Dead letter queue for failed function invocations
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub petty-dlq-${Environment}
+      MessageRetentionPeriod: 1209600  # 14 days
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: Petty
 
   BehavioralRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub PettyBehavioral-${Environment}
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal: { Service: lambda.amazonaws.com }
             Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
       Policies:
-        - PolicyName: PettyBehavioral
+        - PolicyName: PettyBehavioralPolicy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -96,49 +286,170 @@ Resources:
                 Action:
                   - timestream:Select
                   - timestream:DescribeTable
-                Resource: "*"
+                Resource: !Sub "${TimestreamTable}/*"
               - Effect: Allow
                 Action:
                   - s3:PutObject
-                Resource: "*"
+                  - s3:GetObject
+                Resource: !Sub "${FeedbackDataBucket}/*"
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref JWTKeysSecret
+                  - !Ref DatabaseSecret
+                  - !Ref PIIEncryptionSecret
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/petty/${Environment}/*"
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: "*"
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: "*"
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: Petty
 
   TimelineGeneratorFunction:
     Type: AWS::Serverless::Function
     Properties:
+      FunctionName: !Sub petty-timeline-generator-${Environment}
       CodeUri: src/timeline_generator/
       Handler: app.lambda_handler
       Role: !GetAtt BehavioralRole.Arn
+      ReservedConcurrencyLimit: !If [IsProduction, 50, 5]
+      Tracing: Active
       Environment:
         Variables:
           TIMESTREAM_DB: !Ref TimestreamDatabase
           TIMESTREAM_TABLE: !Ref TimestreamTable
+          JWT_KEYS_SECRET: !Ref JWTKeysSecret
+          DATABASE_SECRET: !Ref DatabaseSecret
+          PII_ENCRYPTION_SECRET: !Ref PIIEncryptionSecret
+      DeadLetterQueue:
+        Type: SQS
+        TargetArn: !GetAtt DeadLetterQueue.Arn
       Events:
-        Timeline:
+        # V1 API endpoints
+        TimelineV1:
+          Type: HttpApi
+          Properties:
+            Path: /v1/pet-timeline
+            Method: GET
+        # Legacy endpoint
+        TimelineLegacy:
           Type: HttpApi
           Properties:
             Path: /pet-timeline
             Method: GET
+      Tags:
+        Environment: !Ref Environment
+        Service: Petty
 
   FeedbackHandlerFunction:
     Type: AWS::Serverless::Function
     Properties:
+      FunctionName: !Sub petty-feedback-handler-${Environment}
       CodeUri: src/feedback_handler/
       Handler: app.lambda_handler
       Role: !GetAtt BehavioralRole.Arn
+      ReservedConcurrencyLimit: !If [IsProduction, 20, 2]
+      Tracing: Active
       Environment:
         Variables:
           FEEDBACK_BUCKET: !Ref FeedbackDataBucket
           TIMESTREAM_DB: !Ref TimestreamDatabase
           TIMESTREAM_TABLE: !Ref TimestreamTable
+          JWT_KEYS_SECRET: !Ref JWTKeysSecret
+          DATABASE_SECRET: !Ref DatabaseSecret
+          PII_ENCRYPTION_SECRET: !Ref PIIEncryptionSecret
+      DeadLetterQueue:
+        Type: SQS
+        TargetArn: !GetAtt DeadLetterQueue.Arn
       Events:
-        Feedback:
+        # V1 API endpoints
+        FeedbackV1:
+          Type: HttpApi
+          Properties:
+            Path: /v1/submit-feedback
+            Method: POST
+        # Legacy endpoint
+        FeedbackLegacy:
           Type: HttpApi
           Properties:
             Path: /submit-feedback
             Method: POST
+      Tags:
+        Environment: !Ref Environment
+        Service: Petty
+
+  # CloudWatch Alarms for monitoring
+  HighErrorRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsProduction
+    Properties:
+      AlarmName: !Sub petty-high-error-rate-${Environment}
+      AlarmDescription: High error rate in Petty API functions
+      ComparisonOperator: GreaterThanThreshold
+      EvaluationPeriods: 2
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Period: 300
+      Statistic: Sum
+      Threshold: 10
+      TreatMissingData: notBreaching
+
+  HighLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsProduction
+    Properties:
+      AlarmName: !Sub petty-high-latency-${Environment}
+      AlarmDescription: High latency in Petty API functions
+      ComparisonOperator: GreaterThanThreshold
+      EvaluationPeriods: 2
+      MetricName: Duration
+      Namespace: AWS/Lambda
+      Period: 300
+      Statistic: Average
+      Threshold: 10000  # 10 seconds
+      TreatMissingData: notBreaching
+
+Outputs:
+  ApiGatewayUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/"
+    Export:
+      Name: !Sub "${AWS::StackName}-api-url"
+      
+  V1ApiGatewayUrl:
+    Description: V1 API Gateway endpoint URL
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/v1/"
+    Export:
+      Name: !Sub "${AWS::StackName}-v1-api-url"
+
+  TimestreamDatabase:
+    Description: Timestream database name
+    Value: !Ref TimestreamDatabase
+    Export:
+      Name: !Sub "${AWS::StackName}-timestream-db"
+      
+  FeedbackBucket:
+    Description: S3 bucket for feedback data
+    Value: !Ref FeedbackDataBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-feedback-bucket"
+      
+  JWTKeysSecret:
+    Description: JWT keys secret ARN
+    Value: !Ref JWTKeysSecret
+    Export:
+      Name: !Sub "${AWS::StackName}-jwt-secret"

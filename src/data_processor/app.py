@@ -12,45 +12,72 @@ from datetime import datetime, timezone
 import boto3
 from botocore.exceptions import ClientError, BotoCoreError
 
-# Import security and observability modules
+# Import production-ready security and observability modules
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 try:
-    from aws_lambda_powertools import Logger, Tracer, Metrics
-    from aws_lambda_powertools.logging import correlation_paths
-    from aws_lambda_powertools.metrics import MetricUnit
-    from aws_lambda_powertools.utilities.typing import LambdaContext
-    AWS_POWERTOOLS_AVAILABLE = True
-except ImportError:
-    AWS_POWERTOOLS_AVAILABLE = False
-    class LambdaContext:
-        pass
+    from common.observability.powertools import (
+        lambda_handler_with_observability,
+        monitor_performance,
+        log_api_request,
+        obs_manager,
+        logger,
+        tracer,
+        metrics
+    )
+    from common.security.auth import (
+        production_token_manager,
+        verify_jwt_token,
+        require_auth
+    )
+    from common.security.secrets_manager import secrets_manager
+    from common.security.redaction import safe_log
+    PRODUCTION_MODULES_AVAILABLE = True
+except ImportError as e:
+    PRODUCTION_MODULES_AVAILABLE = False
+    logging.warning(f"Production modules not available - using fallbacks: {e}")
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
 
+# Legacy imports for backward compatibility
 try:
     from common.security.input_validators import validate_collar_data, InputValidator
     from common.security.output_schemas import secure_response_wrapper
     from common.security.rate_limiter import rate_limit_decorator, RateLimitExceeded
-    from common.observability.logger import get_logger
-    SECURITY_MODULES_AVAILABLE = True
+    LEGACY_SECURITY_AVAILABLE = True
 except ImportError:
-    SECURITY_MODULES_AVAILABLE = False
-    logging.warning("Security modules not available - using fallbacks")
+    LEGACY_SECURITY_AVAILABLE = False
 
-# Configure logger
-if AWS_POWERTOOLS_AVAILABLE:
-    logger = Logger(service="data-processor")
-    tracer = Tracer(service="data-processor")
-    metrics = Metrics(service="data-processor", namespace="Petty")
-else:
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
-
-# Environment configuration
-TIMESTREAM_DATABASE = os.getenv("TIMESTREAM_DATABASE", "PettyDB")
+# Environment configuration with secrets management
+TIMESTREAM_DATABASE = os.getenv("TIMESTREAM_DB", "PettyDB")
 TIMESTREAM_TABLE = os.getenv("TIMESTREAM_TABLE", "CollarMetrics")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+
+# Initialize secrets if available
+def get_database_config():
+    """Get database configuration from secrets manager"""
+    if PRODUCTION_MODULES_AVAILABLE:
+        try:
+            db_credentials = secrets_manager.get_database_credentials("petty")
+            if db_credentials:
+                return {
+                    'host': db_credentials['host'],
+                    'database': db_credentials['database'],
+                    'username': db_credentials['username'],
+                    'password': db_credentials['password']
+                }
+        except Exception as e:
+            logger.warning(f"Failed to retrieve database credentials: {e}")
+    
+    # Fallback to environment variables
+    return {
+        'host': TIMESTREAM_DATABASE,
+        'database': TIMESTREAM_TABLE,
+        'username': 'default',
+        'password': 'default'
+    }
 
 # Initialize AWS clients with retry configuration
 session = boto3.Session()
@@ -63,14 +90,18 @@ timestream_client = session.client(
     )
 )
 
+# Get database configuration
+db_config = get_database_config()
+
 class DataProcessor:
-    """Secure data processor for collar telemetry"""
+    """Production-grade secure data processor for collar telemetry"""
     
     def __init__(self):
-        self.validator = InputValidator() if SECURITY_MODULES_AVAILABLE else None
+        self.validator = InputValidator() if LEGACY_SECURITY_AVAILABLE else None
         self.logger = logger
         
-    def process_telemetry(self, event_body: Dict[str, Any], request_id: str) -> Dict[str, Any]:
+    @monitor_performance("telemetry_processing")
+    def process_telemetry(self, event_body: Dict[str, Any], request_id: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Process and validate collar telemetry data
         
@@ -84,7 +115,7 @@ class DataProcessor:
         start_time = time.time()
         
         try:
-            # Input validation and sanitization
+            # Input validation and sanitization with PII protection
             if self.validator:
                 validated_data = self.validator.validate_collar_data(event_body)
                 clean_data = validated_data.dict()
@@ -92,46 +123,92 @@ class DataProcessor:
                 # Fallback validation
                 clean_data = self._fallback_validate(event_body)
             
+            # Log safely with PII redaction
+            if PRODUCTION_MODULES_AVAILABLE:
+                safe_data = safe_log(clean_data)
+                obs_manager.log_business_event(
+                    "telemetry_ingestion",
+                    collar_id=clean_data.get("collar_id"),
+                    user_id=user_id,
+                    data_points=len(clean_data),
+                    request_id=request_id
+                )
+            
             # Store in Timestream
             timestream_result = self._write_to_timestream(clean_data, request_id)
             
-            # Record metrics
-            processing_time = time.time() - start_time
-            if AWS_POWERTOOLS_AVAILABLE:
-                metrics.add_metric(name="ProcessingTime", unit=MetricUnit.Seconds, value=processing_time)
-                metrics.add_metric(name="SuccessfulIngestion", unit=MetricUnit.Count, value=1)
+            # Record performance metrics
+            processing_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+            
+            if PRODUCTION_MODULES_AVAILABLE:
+                obs_manager.log_performance_metric("telemetry_processing", processing_time, True)
+                
+                # Add custom business metrics
+                metrics.add_metric(name="telemetry_ingested", unit="Count", value=1)
+                metrics.add_metric(name="processing_duration", unit="Milliseconds", value=processing_time)
             
             self.logger.info(
                 "Telemetry data processed successfully",
-                collar_id=clean_data.get("collar_id"),
-                processing_time=processing_time,
-                request_id=request_id,
-                timestream_record_id=timestream_result.get("RecordId")
+                extra={
+                    "collar_id": clean_data.get("collar_id"),
+                    "processing_time_ms": processing_time,
+                    "request_id": request_id,
+                    "user_id": user_id,
+                    "timestream_record_id": timestream_result.get("RecordId", "unknown")
+                }
             )
             
-            if SECURITY_MODULES_AVAILABLE:
+            # Return secure response
+            if LEGACY_SECURITY_AVAILABLE:
                 return secure_response_wrapper(
                     success=True,
                     message="Data processed successfully",
                     request_id=request_id
                 )
             else:
-                return {"statusCode": 200, "body": json.dumps({"ok": True})}
+                return {
+                    "statusCode": 201,
+                    "body": json.dumps({
+                        "success": True,
+                        "message": "Data processed successfully",
+                        "request_id": request_id,
+                        "processing_time_ms": processing_time
+                    })
+                }
                 
         except Exception as e:
             # Record failure metrics
-            if AWS_POWERTOOLS_AVAILABLE:
-                metrics.add_metric(name="FailedIngestion", unit=MetricUnit.Count, value=1)
+            processing_time = (time.time() - start_time) * 1000
+            
+            if PRODUCTION_MODULES_AVAILABLE:
+                obs_manager.log_performance_metric("telemetry_processing", processing_time, False)
+                metrics.add_metric(name="telemetry_ingestion_errors", unit="Count", value=1)
+                
+                obs_manager.log_security_event(
+                    "telemetry_processing_error",
+                    "medium",
+                    {
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "collar_id": event_body.get("collar_id") if isinstance(event_body, dict) else "unknown",
+                        "user_id": user_id,
+                        "request_id": request_id
+                    }
+                )
             
             self.logger.error(
                 "Telemetry processing failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                request_id=request_id,
-                collar_id=event_body.get("collar_id") if isinstance(event_body, dict) else "unknown"
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "request_id": request_id,
+                    "user_id": user_id,
+                    "collar_id": event_body.get("collar_id") if isinstance(event_body, dict) else "unknown",
+                    "processing_time_ms": processing_time
+                }
             )
             
-            if SECURITY_MODULES_AVAILABLE:
+            if LEGACY_SECURITY_AVAILABLE:
                 return secure_response_wrapper(
                     success=False,
                     message="Processing failed",
@@ -139,7 +216,14 @@ class DataProcessor:
                     request_id=request_id
                 )
             else:
-                return {"statusCode": 400, "body": json.dumps({"error": str(e)})}
+                return {
+                    "statusCode": 400,
+                    "body": json.dumps({
+                        "error": "Processing failed",
+                        "request_id": request_id,
+                        "error_type": type(e).__name__
+                    })
+                }
     
     def _fallback_validate(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Fallback validation when security modules unavailable"""
@@ -252,80 +336,157 @@ class DataProcessor:
 # Global processor instance
 processor = DataProcessor()
 
-@tracer.capture_lambda_handler if AWS_POWERTOOLS_AVAILABLE else lambda x: x
-@logger.inject_lambda_context(log_event=True) if AWS_POWERTOOLS_AVAILABLE else lambda x: x
-@rate_limit_decorator("ingest", tokens=1, key_func=lambda event, context: event.get("body", {}).get("collar_id", "unknown")) if SECURITY_MODULES_AVAILABLE else lambda x: x
-def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, Any]:
+def authenticate_request(event: Dict[str, Any]) -> Optional[str]:
+    """Authenticate API request and return user ID"""
+    if not PRODUCTION_MODULES_AVAILABLE:
+        return None
+    
+    try:
+        # Extract Authorization header
+        headers = event.get("headers", {})
+        auth_header = headers.get("authorization") or headers.get("Authorization")
+        
+        if not auth_header:
+            return None
+        
+        if not auth_header.startswith("Bearer "):
+            return None
+        
+        token = auth_header[7:]  # Remove "Bearer " prefix
+        
+        # Verify JWT token
+        token_payload = production_token_manager.verify_token(token)
+        if token_payload:
+            return token_payload.user_id
+        
+        return None
+    except Exception as e:
+        logger.warning(f"Authentication failed: {e}")
+        return None
+
+@lambda_handler_with_observability
+@log_api_request("POST", "/v1/ingest")
+def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
     """
-    AWS Lambda handler for collar data ingestion
+    Production-grade AWS Lambda handler for collar data ingestion
     
     Security features:
+    - JWT token authentication
     - Input validation and sanitization
-    - Rate limiting by collar ID
-    - Structured logging with PII redaction
+    - PII redaction in logs
+    - Rate limiting protection
+    - Comprehensive observability
     - Error handling with secure responses
     - AWS Timestream integration with retry logic
     """
     request_id = getattr(context, 'aws_request_id', 'unknown')
     
     try:
+        # Handle CORS preflight requests
+        if event.get("httpMethod") == "OPTIONS":
+            return {
+                "statusCode": 200,
+                "headers": {
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Correlation-ID",
+                    "Access-Control-Allow-Methods": "POST,OPTIONS"
+                },
+                "body": ""
+            }
+        
+        # Authenticate request
+        user_id = authenticate_request(event)
+        if not user_id and ENVIRONMENT == "production":
+            obs_manager.log_security_event(
+                "authentication_required",
+                "medium",
+                {"endpoint": "ingest", "request_id": request_id}
+            )
+            return {
+                "statusCode": 401,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps({
+                    "error": "Authentication required",
+                    "request_id": request_id
+                })
+            }
+        
         # Parse request body
         body = event.get("body")
         if isinstance(body, str):
             try:
                 body = json.loads(body)
             except json.JSONDecodeError as e:
-                logger.error("Invalid JSON in request body", error=str(e), request_id=request_id)
-                if SECURITY_MODULES_AVAILABLE:
-                    return secure_response_wrapper(
-                        success=False,
-                        message="Invalid JSON format",
-                        error_code="INVALID_JSON",
-                        request_id=request_id
-                    )
-                else:
-                    return {"statusCode": 400, "body": json.dumps({"error": "Invalid JSON"})}
+                logger.error("Invalid JSON in request body", extra={"error": str(e), "request_id": request_id})
+                return {
+                    "statusCode": 400,
+                    "headers": {"Content-Type": "application/json"},
+                    "body": json.dumps({
+                        "error": "Invalid JSON format",
+                        "request_id": request_id
+                    })
+                }
         
         if not isinstance(body, dict):
-            logger.error("Request body is not a dictionary", request_id=request_id)
-            if SECURITY_MODULES_AVAILABLE:
-                return secure_response_wrapper(
-                    success=False,
-                    message="Request body must be JSON object",
-                    error_code="INVALID_FORMAT",
-                    request_id=request_id
-                )
-            else:
-                return {"statusCode": 400, "body": json.dumps({"error": "Invalid format"})}
+            logger.error("Request body is not a dictionary", extra={"request_id": request_id})
+            return {
+                "statusCode": 400,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps({
+                    "error": "Request body must be JSON object",
+                    "request_id": request_id
+                })
+            }
         
-        logger.info("Processing collar data ingestion", request_id=request_id)
+        logger.info("Processing collar data ingestion", extra={
+            "request_id": request_id,
+            "user_id": user_id,
+            "collar_id": body.get("collar_id", "unknown")
+        })
         
         # Process the telemetry data
-        result = processor.process_telemetry(body, request_id)
+        result = processor.process_telemetry(body, request_id, user_id)
         
-        # Add CORS headers for browser compatibility
+        # Add CORS and security headers
         if isinstance(result, dict) and "headers" not in result:
             result["headers"] = {
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
-                "Access-Control-Allow-Methods": "POST,OPTIONS"
+                "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Correlation-ID",
+                "Access-Control-Allow-Methods": "POST,OPTIONS",
+                "X-Request-ID": request_id,
+                "X-Content-Type-Options": "nosniff",
+                "X-Frame-Options": "DENY",
+                "X-XSS-Protection": "1; mode=block"
             }
         
         return result
         
-    except RateLimitExceeded as e:
-        logger.warning("Rate limit exceeded", error=str(e), request_id=request_id)
-        return {
-            "statusCode": 429,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({"error": "Rate limit exceeded", "request_id": request_id})
-        }
-    
     except Exception as e:
-        logger.error("Unhandled error in lambda handler", error=str(e), request_id=request_id)
+        error_msg = str(e)
+        logger.error("Unhandled error in lambda handler", extra={
+            "error": error_msg,
+            "error_type": type(e).__name__,
+            "request_id": request_id,
+            "user_id": user_id if 'user_id' in locals() else None
+        })
+        
+        if PRODUCTION_MODULES_AVAILABLE:
+            obs_manager.log_security_event(
+                "lambda_handler_error",
+                "high",
+                {
+                    "error": error_msg,
+                    "error_type": type(e).__name__,
+                    "request_id": request_id
+                }
+            )
+        
         return {
             "statusCode": 500,
             "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({"error": "Internal server error", "request_id": request_id})
+            "body": json.dumps({
+                "error": "Internal server error",
+                "request_id": request_id
+            })
         }

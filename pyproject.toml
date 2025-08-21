@@ -32,6 +32,8 @@ dependencies = [
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
     "redis>=5.0.0",
+    # Additional dependencies for production readiness
+    "aiohttp>=3.8.0",
 ]
 
 [project.optional-dependencies]
