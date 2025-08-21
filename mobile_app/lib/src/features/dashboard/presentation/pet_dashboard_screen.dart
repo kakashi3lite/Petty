@@ -48,7 +48,8 @@ class _PetDashboardScreenState extends State<PetDashboardScreen> {
                     text: 'Retry',
                     onPressed: () {
                       setState(() {
-                        _viewModelFuture = MockPetDataService().getDashboardData();
+                        _viewModelFuture =
+                            MockPetDataService().getDashboardData();
                       });
                     },
                   ),
@@ -82,7 +83,8 @@ class _PetDashboardScreenState extends State<PetDashboardScreen> {
                 ),
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: kSpacingUnit * 2),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: kSpacingUnit * 2),
                     child: Text("Key Metrics", style: AppTypography.h2),
                   ),
                 ),
@@ -93,10 +95,13 @@ class _PetDashboardScreenState extends State<PetDashboardScreen> {
                       padding: const EdgeInsets.all(kSpacingUnit * 2),
                       scrollDirection: Axis.horizontal,
                       itemCount: viewModel.metrics.length,
-                      separatorBuilder: (context, index) => const SizedBox(width: kSpacingUnit * 2),
+                      separatorBuilder: (context, index) =>
+                          const SizedBox(width: kSpacingUnit * 2),
                       itemBuilder: (context, index) {
                         final metric = viewModel.metrics[index];
-                        return HealthMetricChartCard(title: metric.name,);
+                        return HealthMetricChartCard(
+                          title: metric.name,
+                        );
                       },
                     ),
                   ),
@@ -112,7 +117,8 @@ class _PetDashboardScreenState extends State<PetDashboardScreen> {
                     (context, index) {
                       final activity = viewModel.activities[index];
                       return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: kSpacingUnit * 2),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: kSpacingUnit * 2),
                         child: ActivityTimelineTile(
                           icon: activity.icon,
                           activityName: activity.name,
@@ -209,7 +215,8 @@ class MockPetDataService {
 
     return PetDashboardViewModel(
       petName: "Buddy",
-      petAvatarUrl: "https://images.dog.ceo/breeds/hound-afghan/n02088094_1026.jpg",
+      petAvatarUrl:
+          "https://images.dog.ceo/breeds/hound-afghan/n02088094_1026.jpg",
       petStatusText: "Resting Calmly",
       metrics: [
         Metric(name: "Heart Rate"),
@@ -217,9 +224,21 @@ class MockPetDataService {
         Metric(name: "Sleep Quality"),
       ],
       activities: [
-        Activity(icon: Icons.directions_run, name: "High-Energy Play", time: "10:30 AM", summary: "Chased squirrels in the park."),
-        Activity(icon: Icons.local_restaurant, name: "Lunch Time", time: "12:00 PM", summary: "Enjoyed a tasty meal."),
-        Activity(icon: Icons.nightlight_round, name: "Nap Time", time: "2:00 PM", summary: "Took a peaceful nap."),
+        Activity(
+            icon: Icons.directions_run,
+            name: "High-Energy Play",
+            time: "10:30 AM",
+            summary: "Chased squirrels in the park."),
+        Activity(
+            icon: Icons.local_restaurant,
+            name: "Lunch Time",
+            time: "12:00 PM",
+            summary: "Enjoyed a tasty meal."),
+        Activity(
+            icon: Icons.nightlight_round,
+            name: "Nap Time",
+            time: "2:00 PM",
+            summary: "Took a peaceful nap."),
       ],
     );
   }
