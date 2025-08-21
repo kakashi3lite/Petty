@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'features/dashboard/presentation/dashboard_screen.dart';
+import 'features/dashboard/presentation/pet_dashboard_screen.dart';
 import 'features/pet_profile/presentation/pet_profile_screen.dart';
 import 'features/tele_vet/presentation/tele_vet_screen.dart';
 
@@ -12,7 +12,7 @@ class PettyApp extends StatelessWidget {
     final router = GoRouter(
       initialLocation: "/",
       routes: [
-        GoRoute(path: "/", builder: (_, __) => const DashboardScreen()),
+        GoRoute(path: "/", builder: (_, __) => const PetDashboardScreen()),
         GoRoute(path: "/profile", builder: (_, __) => const PetProfileScreen()),
         GoRoute(path: "/tele-vet", builder: (_, __) => const TeleVetScreen()),
       ],
