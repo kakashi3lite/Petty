@@ -64,6 +64,8 @@ flutter run
 
 Planned next: richer nutrition modeling, proactive alert push, multi‑pet households, wellness scoring.
 
+Deep dive topics: [Observability](docs/OBSERVABILITY.md) · [Security](docs/SECURITY.md) · [Privacy](docs/PRIVACY.md)
+
 ## Support & Feedback
 
 Have an idea or found something confusing? Open an issue or submit feedback in‑app – we triage weekly.

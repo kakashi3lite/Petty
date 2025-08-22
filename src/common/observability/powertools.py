@@ -527,5 +527,6 @@ __all__ = [
     'lambda_handler_with_observability',
     'health_checker',
     'ObservabilityManager',
-    'HealthChecker'
+    'HealthChecker',
+    'POWertools_AVAILABLE'
 ]
