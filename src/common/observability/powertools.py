@@ -1,35 +1,146 @@
-"""
-Production-grade observability with AWS Lambda Powertools
-Provides structured logging, metrics, and tracing across all services
+"""Production-grade observability utilities.
+
+Primary implementation uses AWS Lambda Powertools. This module now degrades
+gracefully when the dependency is not present (e.g. local dev / CI) by
+providing lightweight stub implementations that preserve APIs so that
+imports & decorators do not fail. A feature flag `POWertools_AVAILABLE`
+indicates real vs stub behavior.
 """
 
 import json
 import os
+import sys
 import time
 import uuid
+import re
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, Callable, List
+from typing import Dict, Any, Optional, Callable
 from functools import wraps
 from contextlib import contextmanager
-from aws_lambda_powertools import Logger, Tracer, Metrics
-from aws_lambda_powertools.logging import correlation_paths
-from aws_lambda_powertools.metrics import MetricUnit
-from aws_lambda_powertools.tracing import Tracer as TracerClass
+
+try:  # Attempt real powertools import
+    from aws_lambda_powertools import Logger, Tracer, Metrics  # type: ignore
+    from aws_lambda_powertools.logging import correlation_paths  # type: ignore
+    from aws_lambda_powertools.metrics import MetricUnit  # type: ignore
+    from aws_lambda_powertools.tracing import Tracer as TracerClass  # type: ignore
+    POWertools_AVAILABLE = True
+except ImportError:  # Provide stubs
+    POWertools_AVAILABLE = False
+
+    class _StubLogger:
+        def __init__(self, service: str, level: str = "INFO", sampling_rate: float = 0.1):
+            self.service = service
+            self.level = level
+            self.correlation_id = None
+
+        # Basic log writer – no JSON structuring to keep simple
+        def _write(self, level: str, message: str, extra: Optional[Dict[str, Any]] = None):
+            try:
+                print(f"[{level}] {message} | extra={json.dumps(extra) if extra else ''}")
+            except Exception:
+                # Fallback without extra if serialization fails
+                print(f"[{level}] {message}")
+
+        def info(self, message: str, extra: Optional[Dict[str, Any]] = None):
+            self._write("INFO", message, extra)
+
+        def warning(self, message: str, extra: Optional[Dict[str, Any]] = None):
+            self._write("WARNING", message, extra)
+
+        def error(self, message: str, extra: Optional[Dict[str, Any]] = None):
+            self._write("ERROR", message, extra)
+
+        def set_correlation_id(self, correlation_id: str):  # mimic powertools API
+            self.correlation_id = correlation_id
+
+        # Decorator no-ops
+        def inject_lambda_context(self, **_kwargs):
+            def decorator(func: Callable):
+                @wraps(func)
+                def wrapper(event, context):
+                    return func(event, context)
+                return wrapper
+            return decorator
+
+    class _StubSubsegment:
+        def put_metadata(self, *_, **__):
+            return None
+        def add_exception(self, *_, **__):
+            return None
+
+    class _StubTracer:
+        disabled: bool = True
+        def __init__(self, *_, **__):
+            pass
+        def capture_lambda_handler(self, func: Callable):
+            @wraps(func)
+            def wrapper(event, context):
+                return func(event, context)
+            return wrapper
+        def capture_method(self, func: Callable):
+            return func
+        @contextmanager
+        def subsegment(self, _name: str):
+            yield _StubSubsegment()
+
+    class _StubMetrics:
+        def __init__(self, *_, **__):
+            pass
+        def add_metric(self, *_, **__):
+            return None
+        def log_metrics(self, capture_cold_start_metric: bool = False):
+            def decorator(func: Callable):
+                @wraps(func)
+                def wrapper(event, context):
+                    return func(event, context)
+                return wrapper
+            return decorator
+
+    class _StubMetricUnit:  # minimal enum-like for compatibility
+        Milliseconds = "Milliseconds"
+        Count = "Count"
+        Percent = "Percent"
+
+    # Provide names used downstream
+    Logger = _StubLogger  # type: ignore
+    Tracer = _StubTracer  # type: ignore
+    Metrics = _StubMetrics  # type: ignore
+    TracerClass = _StubTracer  # type: ignore
+    MetricUnit = _StubMetricUnit  # type: ignore
+
+    class _CorrelationPaths:  # placeholder attribute container
+        API_GATEWAY_HTTP = "requestId"
+    correlation_paths = _CorrelationPaths()
+
 import boto3
 from botocore.exceptions import ClientError
 
-# Initialize AWS Lambda Powertools
+def _unicode_enabled() -> bool:
+    if os.getenv("DISABLE_UNICODE_LOGS", "0") == "1":
+        return False
+    enc = (getattr(sys.stdout, "encoding", None) or "").lower()
+    if os.name == "nt" and "utf" not in enc:
+        return False
+    return True
+
+EMOJI_ENABLED = _unicode_enabled()
+
+def _sanitize_message(msg: str) -> str:
+    if EMOJI_ENABLED:
+        return msg
+    # Remove most emoji / non BMP symbols
+    return re.sub(r"[\U00010000-\U0010FFFF]", "", msg)
+
+# Initialize real or stub logger/tracer/metrics
 logger = Logger(
     service=os.getenv("SERVICE_NAME", "petty-api"),
     level=os.getenv("LOG_LEVEL", "INFO"),
     sampling_rate=float(os.getenv("LOG_SAMPLING_RATE", "0.1"))
 )
-
 tracer = Tracer(
     service=os.getenv("SERVICE_NAME", "petty-api"),
     disabled=os.getenv("DISABLE_TRACING", "false").lower() == "true"
 )
-
 metrics = Metrics(
     namespace=os.getenv("METRICS_NAMESPACE", "Petty"),
     service=os.getenv("SERVICE_NAME", "petty-api")
@@ -56,7 +167,7 @@ class ObservabilityManager:
     def log_business_event(self, event_name: str, **kwargs) -> None:
         """Log important business events with structured data"""
         logger.info(
-            f"Business Event: {event_name}",
+            _sanitize_message(f"Business Event: {event_name}"),
             extra={
                 "event_type": "business",
                 "event_name": event_name,
@@ -71,7 +182,7 @@ class ObservabilityManager:
     def log_security_event(self, event_type: str, severity: str, details: Dict[str, Any]) -> None:
         """Log security-related events with high priority"""
         logger.warning(
-            f"Security Event: {event_type}",
+            _sanitize_message(f"Security Event: {event_type}"),
             extra={
                 "event_type": "security",
                 "security_event": event_type,
@@ -107,7 +218,7 @@ class ObservabilityManager:
         
         # Structured logging
         logger.info(
-            f"Performance: {operation}",
+            _sanitize_message(f"Performance: {operation}"),
             extra={
                 "event_type": "performance",
                 "operation": operation,
@@ -141,7 +252,7 @@ class ObservabilityManager:
         )
         
         logger.info(
-            f"AI Inference: {model_name}",
+            _sanitize_message(f"AI Inference: {model_name}"),
             extra={
                 "event_type": "ai_inference",
                 "model_name": model_name,
@@ -178,7 +289,7 @@ class ObservabilityManager:
                 
                 if error:
                     logger.error(
-                        f"Operation failed: {operation_name}",
+                        _sanitize_message(f"Operation failed: {operation_name}"),
                         extra={
                             "operation": operation_name,
                             "error": error,
@@ -245,7 +356,7 @@ def log_api_request(endpoint: str, method: str, user_id: Optional[str] = None):
             start_time = time.time()
             
             logger.info(
-                f"API Request: {method} {endpoint}",
+                _sanitize_message(f"API Request: {method} {endpoint}"),
                 extra={
                     "event_type": "api_request",
                     "endpoint": endpoint,
@@ -263,7 +374,7 @@ def log_api_request(endpoint: str, method: str, user_id: Optional[str] = None):
                 obs_manager.log_performance_metric(f"api_{method.lower()}_{endpoint.replace('/', '_')}", duration_ms)
                 
                 logger.info(
-                    f"API Response: {method} {endpoint}",
+                    _sanitize_message(f"API Response: {method} {endpoint}"),
                     extra={
                         "event_type": "api_response",
                         "endpoint": endpoint,
@@ -293,7 +404,7 @@ def log_api_request(endpoint: str, method: str, user_id: Optional[str] = None):
                 )
                 
                 logger.error(
-                    f"API Error: {method} {endpoint}",
+                    _sanitize_message(f"API Error: {method} {endpoint}"),
                     extra={
                         "event_type": "api_error",
                         "endpoint": endpoint,
@@ -372,7 +483,7 @@ def lambda_handler_with_observability(func: Callable) -> Callable:
         
         # Log request
         logger.info(
-            "Lambda invocation started",
+            _sanitize_message("Lambda invocation started"),
             extra={
                 "event_type": "lambda_start",
                 "function_name": context.function_name if context else "unknown",

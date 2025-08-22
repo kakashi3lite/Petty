@@ -1,49 +1,58 @@
 # Petty 🐾
 
-Minimal. Opinionated. Treat‑driven.
+Smart wellness & behavior insights for your pet – in real time.
 
-```text
-UEVUVFk6IEFJICsgYmVoYXZpb3IgK2NhcmUgKyBwcml2YWN5LWJ5LWRlc2lnbiArIG9ic2VydmFiaWxpdHk=
-```
-Decode me later; caffeine first.
+[![Production Ready](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)](docs/PRODUCTION_READINESS_PLAN.md)
+[![Security](https://img.shields.io/badge/Security-Enterprise-blue)](docs/SECURITY.md)
 
-## Badges
+## Why Petty?
 
-[![CI](https://github.com/kakashi3lite/Petty/actions/workflows/ci.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/codeql.yml)
-[![Security Tasks](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml/badge.svg)](https://github.com/kakashi3lite/Petty/actions/workflows/dev-tasks.yml)
-[![Production Ready](https://img.shields.io/badge/Production-Ready-brightgreen)](docs/PRODUCTION_READINESS_PLAN.md)
-[![Enterprise Security](https://img.shields.io/badge/Security-Enterprise-blue)](docs/SECURITY.md)
+Pet owners want clear answers, not raw data. Petty turns collar + activity signals into plain‑language insights you can act on.
 
-Extended docs live off‑page: [Consumer Overview](docs/CONSUMER_OVERVIEW.md) • [Mobile UI Notes](docs/MOBILE_UI_ADAPTIVE_POLLING.md) • [Production Readiness](docs/PRODUCTION_READINESS_PLAN.md) • [Deployment Guide](PRODUCTION_DEPLOYMENT_GUIDE.md)
+### What You Get
 
-## What Actually Exists (Today)
+| Value | What It Means For You |
+|-------|------------------------|
+| Real‑time activity & behavior timeline | See when your pet is resting, active, unsettled, or showing notable patterns |
+| Early wellness signals | Spot changes in routine that may warrant attention before they escalate |
+| Personalized recommendations | Simple guidance (hydration, rest balance, enrichment prompts) – no jargon |
+| Secure by design | Your pet’s data is encrypted, access‑controlled, and never sold |
+| Transparent system health | Monitoring & alerts keep the service reliable so you aren’t guessing |
+| Mobile + API | View on the app or integrate safely with your own tooling |
 
-* **NEW:** ✅ Production-grade security with RSA-256 JWT, secrets management, and data encryption
-* **NEW:** ✅ Comprehensive observability with AWS Lambda Powertools (metrics, logging, tracing)
-* **NEW:** ✅ API versioning strategy with `/v1/` endpoints and backward compatibility
-* **NEW:** ✅ Mobile app error handling with retry logic, exponential backoff, and circuit breakers
-* **NEW:** ✅ Enhanced dashboard UI with metrics cards, pet status, and activity timeline
-* **NEW:** ✅ Complete E2E testing suite covering user journeys, error scenarios, and performance
-* **NEW:** ✅ CloudWatch alarms for high error rates and latency with DLQ for failed invocations
-* **NEW:** ✅ Detailed production deployment guide and readiness validation tools
-* **NEW:** ✅ Adaptive polling with debounced stream utility for mobile UI
-* Behavior timeline fetch + feedback ingestion (S3, SSE‑S3, retries)
-* Lightweight nutrition & plan stubs (replace later with real modeling)
-* Validation + redaction + rate limiting layer around Lambda handlers
-* Flutter screens: Dashboard, Pet Profile, Tele‑Vet
-* Makefile + CI pipeline (lint, tests, coverage to Codecov, CodeQL, security chores)
+## Core Features (Live Today)
 
-## Quickstart: Backend (≈30s)
+* Behavior & activity timeline (with feedback loop)
+* Wellness signal interpretation (early anomalies surfaced)
+* Secure feedback submission (owners add context)
+* Lightweight nutrition & plan stubs (extensible)
+* Mobile dashboard: status cards, recent behaviors, timeline
+* Privacy & security guardrails: encryption, redaction, rate limiting
+* Reliability: dead‑letter handling, monitoring, structured metrics
+
+## Your Data, Protected
+
+We treat pet + household context as sensitive.
+
+* Encryption at rest & in transit
+* Secrets isolated and rotated
+* No secondary data monetization
+* Personal identifiers redacted in logs
+
+Read more: [`docs/SECURITY.md`](docs/SECURITY.md) | [`docs/PRIVACY.md`](docs/PRIVACY.md)
+
+## Quick Peek (Developers / Integrators)
+
+Want to run the stack locally:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
-pip install -U pip && pip install -e .
+./.venv/bin/activate  # Windows: .venv\\Scripts\\activate
+pip install -e .
 python tests/validate_system.py
 ```
 
-## Quickstart: Mobile
+Mobile app:
 
 ```bash
 cd mobile_app
@@ -51,56 +60,19 @@ flutter pub get
 flutter run
 ```
 
-## Dev Loop
+## Roadmap Snapshot
 
-```bash
-make py.lint  # Run linting checks
-make py.test  # Run unit and integration tests
-make flutter.analyze  # Analyze Flutter code
-python tests/validate_production_readiness.py  # Validate production features
-```
+Planned next: richer nutrition modeling, proactive alert push, multi‑pet households, wellness scoring.
 
-## Security Bits
+## Support & Feedback
 
-* **NEW:** RSA-256 JWT with proper token expiration, refresh tokens, and revocation
-* **NEW:** AWS Secrets Manager integration with local encryption and TTL caching
-* **NEW:** CloudWatch monitoring and alerting for security events
-* **NEW:** PII encryption and redaction for compliance (GDPR/CCPA/HIPAA ready)
-* Input validators, output schemas, redaction, rate limiter
-* Dependency & static analysis (CodeQL), plus S3 SSE‑S3
-* Least privilege IAM roles with fine-grained permissions
-
-Full details in [Security Documentation](docs/SECURITY.md)
-
-## Contributing
-
-PRs > complaints. Ship tests. Keep secrets out. Trim scope mercilessly.
-
-## Production Deployment
-
-For detailed production deployment instructions, see the [Production Deployment Guide](PRODUCTION_DEPLOYMENT_GUIDE.md).
-
-```bash
-# Deploy to staging environment
-sam build
-sam deploy --parameter-overrides Environment=staging
-
-# Deploy to production (after validation)
-sam deploy --parameter-overrides Environment=production
-```
+Have an idea or found something confusing? Open an issue or submit feedback in‑app – we triage weekly.
 
 ## License
 
 MIT — see `LICENSE`.
 
-## Bonus Base64
-
-```text
-U2l0LiBTdGF5LiBEZXBsb3kuIEFkdmljZSB5b3VyIHBldCdzIGh1bWFuLg==
-```
-Decode if you must; your pet still wants a walk.
-
 ---
-Future work tracked in issues / PR descriptions. README stays lean.
+Focused on clear value for pet owners. Deeper architecture docs live in `docs/` for those who need them.
 
 
