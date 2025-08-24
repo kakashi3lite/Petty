@@ -127,6 +127,28 @@ def main():
     else:
         print(f"Integration test file not found: {integration_test_file}")
     
+    # Tools tests
+    print("\n" + "=" * 40)
+    print("TOOLS TESTS")
+    print("=" * 40)
+    
+    tools_test_file = tests_dir / "test_generate_samples.py"
+    if tools_test_file.exists():
+        print(f"\nLoading {tools_test_file.name}...")
+        module = import_test_module(tools_test_file)
+        if module:
+            # Find test classes
+            for attr_name in dir(module):
+                attr = getattr(module, attr_name)
+                if (isinstance(attr, type) and 
+                    attr_name.startswith('Test') and 
+                    attr_name != 'TestCase'):
+                    passed, failed = run_test_class(attr, attr_name)
+                    total_passed += passed
+                    total_failed += failed
+    else:
+        print(f"Tools test file not found: {tools_test_file}")
+    
     # Summary
     print("\n" + "=" * 60)
     print("TEST SUMMARY")
