@@ -135,7 +135,8 @@ def _sanitize_message(msg: str) -> str:
 logger = Logger(
     service=os.getenv("SERVICE_NAME", "petty-api"),
     level=os.getenv("LOG_LEVEL", "INFO"),
-    sampling_rate=float(os.getenv("LOG_SAMPLING_RATE", "0.1"))
+    # Powertools uses sample_rate (not sampling_rate); keep env name for clarity
+    sample_rate=float(os.getenv("LOG_SAMPLING_RATE", "0.1"))
 )
 tracer = Tracer(
     service=os.getenv("SERVICE_NAME", "petty-api"),
@@ -321,6 +322,7 @@ def monitor_performance(operation_name: str, include_args: bool = False):
                 metadata["args_count"] = len(args)
                 metadata["kwargs_keys"] = list(kwargs.keys())
             
+            # trace_operation already emits a performance metric; avoid double counting
             with obs_manager.trace_operation(operation_name, metadata):
                 try:
                     result = func(*args, **kwargs)
@@ -329,7 +331,7 @@ def monitor_performance(operation_name: str, include_args: bool = False):
                     success = False
                     error = str(e)
                     obs_manager.log_security_event(
-                        "function_error", 
+                        "function_error",
                         "medium",
                         {
                             "function": func.__name__,
@@ -338,9 +340,7 @@ def monitor_performance(operation_name: str, include_args: bool = False):
                         }
                     )
                     raise
-                finally:
-                    duration_ms = (time.time() - start_time) * 1000
-                    obs_manager.log_performance_metric(operation_name, duration_ms, success)
+                # No explicit finally logging to prevent duplicate metrics
         
         return wrapper
     return decorator
@@ -444,7 +444,7 @@ class HealthChecker:
         """Check health of external dependencies"""
         dependencies = {}
         
-        # Check AWS services
+    # Check AWS services (lightweight reachability probes)
         try:
             # Test S3 connectivity
             s3_client = boto3.client('s3')
