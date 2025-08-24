@@ -331,7 +331,7 @@ jobs:
           sha256sum petty-release-${{ github.ref_name }}.tar.gz > petty-release-${{ github.ref_name }}.tar.gz.sha256
 
       - name: Upload release assets
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/petty-release-${{ github.ref_name }}.tar.gz
