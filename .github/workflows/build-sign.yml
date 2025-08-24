@@ -175,7 +175,7 @@ jobs:
         uses: sigstore/cosign-installer@v3
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v5
         with:
           path: artifacts/
 
@@ -286,7 +286,7 @@ jobs:
           egress-policy: audit
 
       - name: Download signed artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v5
         with:
           name: signed-artifacts
           path: artifacts/
@@ -319,7 +319,7 @@ jobs:
           egress-policy: audit
 
       - name: Download signed artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v5
         with:
           name: signed-artifacts
           path: artifacts/
