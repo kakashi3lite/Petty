@@ -195,6 +195,39 @@ ci-security: ## Run security checks in CI
 	safety check --json --output safety-report.json
 	detect-secrets scan --baseline .secrets.baseline
 
+# Branch synchronization tools
+branches-summary: ## Quick branch sync status overview
+	@echo "$(BLUE)📊 Checking branch synchronization status...$(RESET)"
+	@python3 tools/branch_sync_summary.py
+
+branches-summary-health: ## Branch sync summary with health score
+	@echo "$(BLUE)🏥 Branch synchronization health check...$(RESET)"
+	@python3 tools/branch_sync_summary.py --health
+
+branches-check: ## Detailed branch sync analysis
+	@echo "$(BLUE)🔍 Detailed branch synchronization analysis...$(RESET)"
+	@python3 tools/branch_sync_check.py
+
+branches-check-json: ## Export branch sync analysis to JSON
+	@echo "$(BLUE)📄 Exporting branch analysis to JSON...$(RESET)"
+	@python3 tools/branch_sync_check.py --json branch_sync_report.json
+
+branches-bulk-sync-dry: ## Preview bulk sync operations (dry run)
+	@echo "$(BLUE)🧪 Previewing bulk synchronization operations...$(RESET)"
+	@python3 tools/bulk_branch_sync.py --dry-run
+
+branches-bulk-sync: ## Interactive bulk branch synchronization
+	@echo "$(BLUE)🔄 Starting interactive bulk branch synchronization...$(RESET)"
+	@python3 tools/bulk_branch_sync.py
+
+branches-bulk-sync-behind: ## Sync only branches that are behind (safe)
+	@echo "$(BLUE)⚡ Fast-forwarding branches that are behind main...$(RESET)"
+	@python3 tools/bulk_branch_sync.py --behind-only --auto
+
+branches-bulk-sync-auto: ## Automatic bulk sync (non-interactive)
+	@echo "$(BLUE)🤖 Automatic bulk branch synchronization...$(RESET)"
+	@python3 tools/bulk_branch_sync.py --auto
+
 # Development helpers
 dev-setup: bootstrap ## Alias for bootstrap
 
