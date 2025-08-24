@@ -1,10 +1,10 @@
-"""Production-grade observability utilities.
+"""Production-grade observability utilities with safe fallbacks.
 
-Primary implementation uses AWS Lambda Powertools. This module now degrades
-gracefully when the dependency is not present (e.g. local dev / CI) by
-providing lightweight stub implementations that preserve APIs so that
-imports & decorators do not fail. A feature flag `POWertools_AVAILABLE`
-indicates real vs stub behavior.
+This file intentionally keeps implementation simple and robust. It:
+ - Uses AWS Lambda Powertools when available
+ - Falls back to lightweight stubs when dependencies are missing
+ - Provides helper decorators & an ObservabilityManager
+ - Avoids complex refactors to remain easy to audit
 """
 
 import json
@@ -22,7 +22,6 @@ try:  # Attempt real powertools import
     from aws_lambda_powertools import Logger, Tracer, Metrics  # type: ignore
     from aws_lambda_powertools.logging import correlation_paths  # type: ignore
     from aws_lambda_powertools.metrics import MetricUnit  # type: ignore
-    from aws_lambda_powertools.tracing import Tracer as TracerClass  # type: ignore
     POWertools_AVAILABLE = True
 except ImportError:  # Provide stubs
     POWertools_AVAILABLE = False
@@ -33,27 +32,20 @@ except ImportError:  # Provide stubs
             self.level = level
             self.correlation_id = None
 
-        # Basic log writer – no JSON structuring to keep simple
         def _write(self, level: str, message: str, extra: Optional[Dict[str, Any]] = None):
             try:
                 print(f"[{level}] {message} | extra={json.dumps(extra) if extra else ''}")
             except Exception:
-                # Fallback without extra if serialization fails
                 print(f"[{level}] {message}")
 
         def info(self, message: str, extra: Optional[Dict[str, Any]] = None):
             self._write("INFO", message, extra)
-
         def warning(self, message: str, extra: Optional[Dict[str, Any]] = None):
             self._write("WARNING", message, extra)
-
         def error(self, message: str, extra: Optional[Dict[str, Any]] = None):
             self._write("ERROR", message, extra)
-
-        def set_correlation_id(self, correlation_id: str):  # mimic powertools API
+        def set_correlation_id(self, correlation_id: str):
             self.correlation_id = correlation_id
-
-        # Decorator no-ops
         def inject_lambda_context(self, **_kwargs):
             def decorator(func: Callable):
                 @wraps(func)
@@ -96,24 +88,25 @@ except ImportError:  # Provide stubs
                 return wrapper
             return decorator
 
-    class _StubMetricUnit:  # minimal enum-like for compatibility
+    class _StubMetricUnit:
         Milliseconds = "Milliseconds"
         Count = "Count"
         Percent = "Percent"
 
-    # Provide names used downstream
     Logger = _StubLogger  # type: ignore
     Tracer = _StubTracer  # type: ignore
     Metrics = _StubMetrics  # type: ignore
-    TracerClass = _StubTracer  # type: ignore
     MetricUnit = _StubMetricUnit  # type: ignore
 
-    class _CorrelationPaths:  # placeholder attribute container
+    class _CorrelationPaths:
         API_GATEWAY_HTTP = "requestId"
     correlation_paths = _CorrelationPaths()
 
-import boto3
-from botocore.exceptions import ClientError
+try:
+    import boto3  # type: ignore  # noqa: F401
+    _BOTO3_AVAILABLE = True
+except Exception:  # pragma: no cover
+    _BOTO3_AVAILABLE = False
 
 def _unicode_enabled() -> bool:
     if os.getenv("DISABLE_UNICODE_LOGS", "0") == "1":
@@ -122,43 +115,31 @@ def _unicode_enabled() -> bool:
     if os.name == "nt" and "utf" not in enc:
         return False
     return True
-
 EMOJI_ENABLED = _unicode_enabled()
 
 def _sanitize_message(msg: str) -> str:
     if EMOJI_ENABLED:
         return msg
-    # Remove most emoji / non BMP symbols
     return re.sub(r"[\U00010000-\U0010FFFF]", "", msg)
 
-# Initialize real or stub logger/tracer/metrics
-logger = Logger(
-    service=os.getenv("SERVICE_NAME", "petty-api"),
-    level=os.getenv("LOG_LEVEL", "INFO"),
-    # Powertools uses sample_rate (not sampling_rate); keep env name for clarity
-    sample_rate=float(os.getenv("LOG_SAMPLING_RATE", "0.1"))
-)
-tracer = Tracer(
-    service=os.getenv("SERVICE_NAME", "petty-api"),
-    disabled=os.getenv("DISABLE_TRACING", "false").lower() == "true"
-)
-metrics = Metrics(
-    namespace=os.getenv("METRICS_NAMESPACE", "Petty"),
-    service=os.getenv("SERVICE_NAME", "petty-api")
-)
+SERVICE_NAME = os.getenv("SERVICE_NAME", "petty-api")
+METRICS_NAMESPACE = os.getenv("METRICS_NAMESPACE", "Petty")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_SAMPLE_RATE = float(os.getenv("LOG_SAMPLING_RATE", "0.1"))
+
+logger = Logger(service=SERVICE_NAME, level=LOG_LEVEL, sample_rate=LOG_SAMPLE_RATE)
+tracer = Tracer(service=SERVICE_NAME, disabled=os.getenv("DISABLE_TRACING", "false").lower() == "true")
+metrics = Metrics(namespace=METRICS_NAMESPACE, service=SERVICE_NAME)
 
 class ObservabilityManager:
-    """Centralized observability management for the Petty application"""
-    
+    """Centralized observability management (simple version)."""
+
     def __init__(self):
-        self.service_name = os.getenv("SERVICE_NAME", "petty-api")
+        self.service_name = SERVICE_NAME
         self.environment = os.getenv("ENVIRONMENT", "development")
         self.version = os.getenv("SERVICE_VERSION", "0.1.0")
         self.correlation_id = str(uuid.uuid4())
-        
-        # Performance tracking
-        self._operation_times = {}
-        self._error_counts = {}
+
     
     def set_correlation_id(self, correlation_id: str) -> None:
         """Set correlation ID for request tracing"""
@@ -272,11 +253,14 @@ class ObservabilityManager:
         start_time = time.time()
         success = True
         error = None
-        
+
         with tracer.subsegment(operation_name) as subsegment:
             if metadata:
-                subsegment.put_metadata("operation_metadata", metadata)
-            
+                try:
+                    subsegment.put_metadata("operation_metadata", metadata)
+                except Exception:
+                    pass
+
             try:
                 yield subsegment
             except Exception as e:
@@ -287,7 +271,6 @@ class ObservabilityManager:
             finally:
                 duration_ms = (time.time() - start_time) * 1000
                 self.log_performance_metric(operation_name, duration_ms, success)
-                
                 if error:
                     logger.error(
                         _sanitize_message(f"Operation failed: {operation_name}"),
@@ -307,40 +290,25 @@ def monitor_performance(operation_name: str, include_args: bool = False):
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs):
-            start_time = time.time()
-            success = True
-            result = None
-            error = None
-            
-            # Create span metadata
-            metadata = {
-                "function_name": func.__name__,
-                "operation": operation_name
-            }
-            
+            metadata = {"function_name": func.__name__, "operation": operation_name}
             if include_args:
                 metadata["args_count"] = len(args)
                 metadata["kwargs_keys"] = list(kwargs.keys())
-            
-            # trace_operation already emits a performance metric; avoid double counting
+
             with obs_manager.trace_operation(operation_name, metadata):
                 try:
-                    result = func(*args, **kwargs)
-                    return result
+                    return func(*args, **kwargs)
                 except Exception as e:
-                    success = False
-                    error = str(e)
                     obs_manager.log_security_event(
                         "function_error",
                         "medium",
                         {
                             "function": func.__name__,
                             "operation": operation_name,
-                            "error": error
+                            "error": str(e)
                         }
                     )
                     raise
-                # No explicit finally logging to prevent duplicate metrics
         
         return wrapper
     return decorator
@@ -444,20 +412,25 @@ class HealthChecker:
         """Check health of external dependencies"""
         dependencies = {}
         
-    # Check AWS services (lightweight reachability probes)
+        # Check AWS services (lightweight reachability probes)
         try:
-            # Test S3 connectivity
-            s3_client = boto3.client('s3')
-            s3_client.list_buckets()
-            dependencies["s3"] = {"status": "healthy", "response_time_ms": 0}
-        except ClientError as e:
+            if _BOTO3_AVAILABLE:
+                s3_client = boto3.client('s3')  # type: ignore
+                s3_client.list_buckets()
+                dependencies["s3"] = {"status": "healthy", "response_time_ms": 0}
+            else:
+                dependencies["s3"] = {"status": "unknown", "error": "boto3_unavailable"}
+        except Exception as e:
             dependencies["s3"] = {"status": "unhealthy", "error": str(e)}
         
         try:
-            # Test DynamoDB connectivity
-            timestream_client = boto3.client('timestream-query')
-            dependencies["timestream"] = {"status": "healthy", "response_time_ms": 0}
-        except ClientError as e:
+            if _BOTO3_AVAILABLE:
+                # Creation of client suffices as lightweight health indicator
+                boto3.client('timestream-query')  # type: ignore
+                dependencies["timestream"] = {"status": "healthy", "response_time_ms": 0}
+            else:
+                dependencies["timestream"] = {"status": "unknown", "error": "boto3_unavailable"}
+        except Exception as e:
             dependencies["timestream"] = {"status": "unhealthy", "error": str(e)}
         
         return {
@@ -486,7 +459,7 @@ def lambda_handler_with_observability(func: Callable) -> Callable:
             _sanitize_message("Lambda invocation started"),
             extra={
                 "event_type": "lambda_start",
-                "function_name": context.function_name if context else "unknown",
+                "function_name": getattr(context, 'function_name', 'unknown') if context else "unknown",
                 "correlation_id": correlation_id,
                 "cold_start": getattr(context, 'cold_start', False) if context else False
             }
