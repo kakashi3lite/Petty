@@ -1,0 +1,72 @@
+name: Deploy Cloud Run (FastAPI)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Dockerfile'
+      - 'src/api_service.py'
+      - 'pyproject.toml'
+      - '.github/workflows/cloudrun.yml'
+
+env:
+  GCP_REGION: us-central1
+  SERVICE_NAME: petty-api
+  IMAGE_NAME: petty-api
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Google Auth
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker auth
+        run: gcloud auth configure-docker --quiet
+
+      - name: Build image
+        run: |
+          IMAGE="${{ steps.auth.outputs.project_id }}-docker.pkg.dev/${{ steps.auth.outputs.project_id }}/petty/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo "IMAGE_URI=$IMAGE" >> $GITHUB_ENV
+          docker build -t "$IMAGE" .
+
+      - name: Push image
+        run: docker push "$IMAGE_URI"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy $SERVICE_NAME \
+            --image $IMAGE_URI \
+            --platform managed \
+            --region $GCP_REGION \
+            --allow-unauthenticated \
+            --cpu=1 \
+            --memory=512Mi \
+            --port=8080 \
+            --min-instances=0 \
+            --max-instances=10 \
+            --concurrency=80 \
+            --timeout=60 \
+            --set-env-vars "SERVICE_NAME=petty-api,ENVIRONMENT=production"
+
+      - name: Output Service URL
+        run: gcloud run services describe $SERVICE_NAME --region $GCP_REGION --format 'value(status.url)'
